@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AppShell } from "../../components/AppShell";
 import { ReportRow } from "../../components/ReportRow";
+import { type ReportStatus } from "../../lib/mockReports";
 
 export type ReportItem = {
   id: string;
@@ -17,6 +18,26 @@ export type ReportItem = {
 export function ReportsClient({ reports = [] as ReportItem[] }: { reports?: ReportItem[] }) {
   const safeReports = reports || [];
   const [selected, setSelected] = useState<ReportItem | null>(null);
+
+  const normalizeStatus = (value: string | null): ReportStatus => {
+    const normalized = (value || "").toLowerCase();
+    switch (normalized) {
+      case "new":
+      case "open":
+        return "New";
+      case "in review":
+      case "review":
+        return "In Review";
+      case "dispatched":
+      case "assigned":
+        return "Dispatched";
+      case "closed":
+      case "resolved":
+        return "Closed";
+      default:
+        return "New";
+    }
+  };
 
   return (
     <AppShell>
@@ -47,7 +68,7 @@ export function ReportsClient({ reports = [] as ReportItem[] }: { reports?: Repo
                     location: report.location || "Unknown location",
                     severity: (report.severity as any) || "Low",
                     date: report.created_at?.slice(0, 10) || "",
-                    status: report.status || "open",
+                    status: normalizeStatus(report.status),
                     description: report.description || "",
                   }}
                   onSelect={() => setSelected(report)}

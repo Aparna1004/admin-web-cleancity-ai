@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabaseClient } from "@/lib/supabase/client";
 
 export default function OAuthExchangePage() {
+  return (
+    <Suspense fallback={null}>
+      <OAuthExchangeContent />
+    </Suspense>
+  );
+}
+
+function OAuthExchangeContent() {
   const router = useRouter();
   const params = useSearchParams();
 
