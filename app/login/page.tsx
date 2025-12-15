@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
-import { supabaseClient } from "../../lib/supabaseClient";
+import { supabaseClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,7 +12,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [oauthLoading, setOauthLoading] = useState(false);
 
   useEffect(() => {
     if (params.get("error") === "not_admin") {
@@ -28,28 +27,17 @@ export default function LoginPage() {
       return;
     }
     setLoading(true);
-    await supabaseClient.auth.signInWithPassword({
+    const { error } = await supabaseClient.auth.signInWithPassword({
       email: email.trim(),
       password,
     });
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+      return;
+    }
     setLoading(false);
     router.replace(redirect);
-  }
-
-  async function handleGoogleSignIn() {
-    setError("");
-    setOauthLoading(true);
-
-    await supabaseClient.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}`,
-      },
-    });
-
-    // In stub mode we won't actually redirect; just proceed.
-    router.replace(redirect);
-    setOauthLoading(false);
   }
 
   return (
@@ -93,19 +81,6 @@ export default function LoginPage() {
             {loading ? "Signing in…" : "Login"}
           </button>
         </form>
-        <div className="mt-6 flex items-center space-x-2 text-sm text-slate-500">
-          <div className="h-px flex-1 bg-slate-200" />
-          <span>or</span>
-          <div className="h-px flex-1 bg-slate-200" />
-        </div>
-        <button
-          type="button"
-          onClick={handleGoogleSignIn}
-          disabled={oauthLoading}
-          className="mt-4 w-full rounded-lg border border-slate-200 px-4 py-2 font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-70"
-        >
-          {oauthLoading ? "Redirecting…" : "Continue with Google"}
-        </button>
       </div>
     </div>
   );
