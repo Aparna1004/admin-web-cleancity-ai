@@ -1,141 +1,159 @@
--- =====================================================
--- CleanCity Database Schema (Supabase / PostgreSQL)
--- =====================================================
+-- =========================
+-- CleanCity Database Setup
+-- =========================
 
 -- ---------- EXTENSIONS ----------
 create extension if not exists "pgcrypto";
 
 -- ---------- ENUMS ----------
-DO $$
-BEGIN
-  IF NOT EXISTS (select 1 from pg_type where typname = 'user_role') THEN
-    create type user_role as enum ('citizen', 'worker', 'admin');
-  END IF;
-
-  IF NOT EXISTS (select 1 from pg_type where typname = 'report_severity') THEN
-    create type report_severity as enum ('low', 'medium', 'high');
-  END IF;
-
-  IF NOT EXISTS (select 1 from pg_type where typname = 'report_status') THEN
-    create type report_status as enum ('pending', 'assigned', 'cleaned');
-  END IF;
-
-  IF NOT EXISTS (select 1 from pg_type where typname = 'route_status') THEN
-    create type route_status as enum ('planned', 'in_progress', 'completed');
-  END IF;
-
-  IF NOT EXISTS (select 1 from pg_type where typname = 'bin_request_status') THEN
-    create type bin_request_status as enum ('requested', 'approved', 'installed');
-  END IF;
-END$$;
-
--- =====================================================
--- TABLES
--- =====================================================
+create type if not exists public.user_role as enum ('citizen', 'worker', 'admin');
+create type if not exists public.report_severity as enum ('low', 'medium', 'high');
+create type if not exists public.report_status as enum ('pending', 'assigned', 'cleaned');
+create type if not exists public.bin_request_status as enum ('requested', 'approved', 'installed');
 
 -- ---------- PROFILES ----------
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
+  email text unique,
   name text,
-  email text,
-  phone text,
-  role user_role not null default 'citizen',
-  created_at timestamptz not null default now()
+  role public.user_role not null default 'citizen',
+  created_at timestamptz default now()
 );
-
--- ---------- WORKERS ----------
-create table if not exists public.workers (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.profiles(id) on delete cascade,
-  active boolean not null default true,
-  created_at timestamptz not null default now()
-);
-
-create unique index if not exists workers_user_unique on public.workers(user_id);
 
 -- ---------- REPORTS ----------
 create table if not exists public.reports (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.profiles(id) on delete cascade,
+  user_id uuid not null default auth.uid(),
   description text not null,
   image_url text,
   latitude double precision not null,
   longitude double precision not null,
-  address text,
-  severity report_severity not null default 'medium',
-  status report_status not null default 'pending',
-  created_at timestamptz not null default now()
+  severity public.report_severity default 'medium',
+  status public.report_status default 'pending',
+  created_at timestamptz default now()
 );
 
-create index if not exists reports_user_idx on public.reports(user_id);
-create index if not exists reports_status_idx on public.reports(status);
-create index if not exists reports_created_idx on public.reports(created_at desc);
-
--- ---------- ROUTES ----------
-create table if not exists public.routes (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  worker_id uuid references public.workers(id) on delete set null,
-  date date not null,
-  status route_status not null default 'planned',
-  created_at timestamptz not null default now()
-);
-
-create index if not exists routes_worker_idx on public.routes(worker_id);
-create index if not exists routes_date_idx on public.routes(date desc);
-
--- ---------- ROUTE_REPORTS (JUNCTION) ----------
-create table if not exists public.route_reports (
-  id uuid primary key default gen_random_uuid(),
-  route_id uuid not null references public.routes(id) on delete cascade,
-  report_id uuid not null references public.reports(id) on delete cascade,
-  unique (route_id, report_id)
-);
-
-create index if not exists route_reports_route_idx on public.route_reports(route_id);
-create index if not exists route_reports_report_idx on public.route_reports(report_id);
+alter table public.reports
+add constraint reports_user_id_fkey
+foreign key (user_id)
+references public.profiles(id)
+on delete cascade;
 
 -- ---------- BIN REQUESTS ----------
 create table if not exists public.bin_requests (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.profiles(id) on delete cascade,
+  user_id uuid not null default auth.uid(),
   latitude double precision not null,
   longitude double precision not null,
-  address text not null,
-  status bin_request_status not null default 'requested',
-  created_at timestamptz not null default now()
+  address text,
+  status public.bin_request_status default 'requested',
+  created_at timestamptz default now()
 );
 
-create index if not exists bin_requests_user_idx on public.bin_requests(user_id);
-create index if not exists bin_requests_status_idx on public.bin_requests(status);
-create index if not exists bin_requests_created_idx on public.bin_requests(created_at desc);
+alter table public.bin_requests
+add constraint bin_requests_user_id_fkey
+foreign key (user_id)
+references public.profiles(id)
+on delete cascade;
 
--- ---------- AUDIT LOGS ----------
-create table if not exists public.audit_logs (
-  id uuid primary key default gen_random_uuid(),
-  admin_id uuid references public.profiles(id) on delete set null,
-  action text not null,
-  created_at timestamptz not null default now()
-);
+-- ---------- ENABLE RLS ----------
+alter table public.profiles enable row level security;
+alter table public.reports enable row level security;
+alter table public.bin_requests enable row level security;
 
-create index if not exists audit_logs_admin_idx on public.audit_logs(admin_id);
-create index if not exists audit_logs_created_idx on public.audit_logs(created_at desc);
+-- =========================
+-- RLS POLICIES
+-- =========================
 
--- =====================================================
--- AUTO PROFILE CREATION ON SIGNUP
--- =====================================================
+-- ---------- PROFILES ----------
+create policy profiles_read_self
+on public.profiles
+for select
+using (id = auth.uid());
+
+create policy profiles_update_self
+on public.profiles
+for update
+using (id = auth.uid())
+with check (id = auth.uid());
+
+create policy profiles_admin_all
+on public.profiles
+for all
+using (auth.jwt() ->> 'role' = 'admin')
+with check (auth.jwt() ->> 'role' = 'admin');
+
+-- ---------- REPORTS ----------
+create policy reports_insert_self
+on public.reports
+for insert
+with check (true);
+
+create policy reports_read_own
+on public.reports
+for select
+using (user_id = auth.uid());
+
+create policy reports_admin_all
+on public.reports
+for all
+using (auth.jwt() ->> 'role' = 'admin')
+with check (auth.jwt() ->> 'role' = 'admin');
+
+-- ---------- BIN REQUESTS ----------
+create policy bin_requests_insert_self
+on public.bin_requests
+for insert
+with check (true);
+
+create policy bin_requests_read_own
+on public.bin_requests
+for select
+using (user_id = auth.uid());
+
+create policy bin_requests_admin_all
+on public.bin_requests
+for all
+using (auth.jwt() ->> 'role' = 'admin')
+with check (auth.jwt() ->> 'role' = 'admin');
+
+-- =========================
+-- PROFILE AUTO-CREATION
+-- =========================
+
 create or replace function public.handle_new_user()
-returns trigger as $$
+returns trigger
+language plpgsql
+security definer
+as $$
 begin
-  insert into public.profiles (id, email)
-  values (new.id, new.email)
+  insert into public.profiles (id, email, name)
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data->>'name', new.email)
+  )
   on conflict (id) do nothing;
+
   return new;
 end;
-$$ language plpgsql security definer;
+$$;
 
 drop trigger if exists on_auth_user_created on auth.users;
 
 create trigger on_auth_user_created
 after insert on auth.users
-for each row execute procedure public.handle_new_user();
+for each row
+execute procedure public.handle_new_user();
+
+-- =========================
+-- BACKFILL OLD USERS (RUN ONCE)
+-- =========================
+insert into public.profiles (id, email, name)
+select
+  u.id,
+  u.email,
+  coalesce(u.raw_user_meta_data->>'name', u.email)
+from auth.users u
+left join public.profiles p on p.id = u.id
+where p.id is null;
