@@ -59,6 +59,9 @@ export function getRouteById(id: string): Route | undefined {
   return routes.find((route) => route.id === id);
 }
 
+// Backwards compatibility for older imports
+export const mockRoutes = routes;
+
 export async function fetchRoutes(): Promise<Route[]> {
   return Promise.resolve(routes);
 }

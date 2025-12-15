@@ -1,14 +1,12 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { AppShell } from "../../../components/AppShell";
-import { mockRoutes } from "../../../lib/mockRoutes";
+import { mockRoutes, type RouteStop } from "../../../lib/mockRoutes";
 
 const RouteMap = dynamic(
   () => import("../../../components/RouteMap").then((mod) => mod.RouteMap),
   { ssr: false }
 );
-
-type Stop = { id: string; name: string; lat: number; lng: number; severity?: string; status?: string; afterImage?: string };
 
 export default async function RouteDetailPage({ params }: { params: { id: string } }) {
   const route = mockRoutes.find((r) => r.id === params.id);
@@ -29,7 +27,13 @@ export default async function RouteDetailPage({ params }: { params: { id: string
     );
   }
 
-  const stops: Stop[] = Array.isArray(route.stops) ? route.stops : [];
+  const stops: RouteStop[] = Array.isArray(route.stops)
+    ? route.stops.map((stop) => ({
+        ...stop,
+        severity: stop.severity ?? "Low",
+        status: stop.status ?? "Pending",
+      }))
+    : [];
 
   return (
     <AppShell>
@@ -37,7 +41,7 @@ export default async function RouteDetailPage({ params }: { params: { id: string
         <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h2 className="text-xl font-bold text-slate-900">{route.name || `Route ${route.id}`}</h2>
+              <h2 className="text-xl font-bold text-slate-900">{`Route ${route.id}`}</h2>
               <p className="text-sm text-slate-600">Zone {route.zone ?? "N/A"} • {stops.length} stops</p>
             </div>
           </div>
