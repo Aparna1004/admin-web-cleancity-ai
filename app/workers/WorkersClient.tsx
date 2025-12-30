@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { WorkerCard } from "../../components/WorkerCard";
 
 export type WorkerRow = {
@@ -11,8 +12,63 @@ export type WorkerRow = {
 };
 
 export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: WorkerRow[] }) {
+  const router = useRouter();
   const safeWorkers = workers || [];
   const [selected, setSelected] = useState<WorkerRow | null>(null);
+  const [routeId, setRouteId] = useState("");
+  const [notes, setNotes] = useState("");
+  const [assigning, setAssigning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch available routes when modal opens
+  const [availableRoutes, setAvailableRoutes] = useState<Array<{ id: string; name: string }>>([]);
+
+  useEffect(() => {
+    if (selected) {
+      fetch("/api/routes")
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setAvailableRoutes(data.map((r: any) => ({ id: r.id, name: r.name || r.id })));
+          }
+        })
+        .catch(() => setAvailableRoutes([]));
+    }
+  }, [selected]);
+
+  const handleAssign = async () => {
+    if (!selected || !routeId.trim()) {
+      setError("Please select a route");
+      return;
+    }
+
+    setAssigning(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/workers/${selected.id}/assign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ route_id: routeId, notes: notes.trim() || undefined }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || "Failed to assign route");
+        return;
+      }
+
+      setSelected(null);
+      setRouteId("");
+      setNotes("");
+      router.refresh();
+    } catch (err) {
+      console.error("[WorkersClient] Failed to assign route", err);
+      setError("Unexpected error while assigning route");
+    } finally {
+      setAssigning(false);
+    }
+  };
 
   return (
     <>
@@ -40,30 +96,47 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
               Assign a route to <span className="font-semibold">{selected.profiles?.full_name || "Worker"}</span>
             </p>
             <div className="mt-4 space-y-3">
-              <label className="text-sm font-semibold text-slate-700">Route ID</label>
-              <input
+              <label className="text-sm font-semibold text-slate-700">Route</label>
+              <select
+                value={routeId}
+                onChange={(e) => setRouteId(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-indigo-500 focus:outline-none"
-                placeholder="e.g. R-401"
-              />
+              >
+                <option value="">Select a route</option>
+                {availableRoutes.map((route) => (
+                  <option key={route.id} value={route.id}>
+                    {route.name}
+                  </option>
+                ))}
+              </select>
               <label className="text-sm font-semibold text-slate-700">Notes</label>
               <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-indigo-500 focus:outline-none"
                 rows={3}
                 placeholder="Add dispatch instructions"
               />
+              {error && <p className="text-sm text-rose-600">{error}</p>}
             </div>
             <div className="mt-6 flex justify-end gap-2">
               <button
-                onClick={() => setSelected(null)}
+                onClick={() => {
+                  setSelected(null);
+                  setRouteId("");
+                  setNotes("");
+                  setError(null);
+                }}
                 className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
               >
                 Cancel
               </button>
               <button
-                onClick={() => setSelected(null)}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+                onClick={handleAssign}
+                disabled={assigning || !routeId.trim()}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-70"
               >
-                Assign
+                {assigning ? "Assigning…" : "Assign"}
               </button>
             </div>
           </div>

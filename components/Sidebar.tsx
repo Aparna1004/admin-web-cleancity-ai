@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { FiActivity, FiLogOut, FiMap, FiUsers, FiClipboard } from "react-icons/fi";
+import { FiActivity, FiLogOut, FiMap, FiUsers, FiClipboard, FiPackage } from "react-icons/fi";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: FiActivity },
   { href: "/routes", label: "Routes", icon: FiMap },
   { href: "/workers", label: "Workers", icon: FiUsers },
   { href: "/reports", label: "Reports", icon: FiClipboard },
+  { href: "/bin-requests", label: "Bin Requests", icon: FiPackage },
 ];
 
 export function Sidebar() {

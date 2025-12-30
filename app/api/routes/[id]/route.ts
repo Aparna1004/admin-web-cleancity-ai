@@ -3,6 +3,8 @@ import { getSupabaseServiceClient } from "../../../../lib/supabaseServer";
 
 // GET /api/routes/:id
 // Returns a single route with its basic fields and associated report IDs if available.
+// 
+// TODO: The routes table must be created in Supabase before this endpoint will work.
 export async function GET(_: Request, { params }: { params: { id: string } }) {
   try {
     const supabase = getSupabaseServiceClient();
@@ -15,6 +17,13 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
 
     if (routeError) {
       console.error("[routes/:id:GET] Supabase error fetching route", routeError);
+      // PGRST205 means table doesn't exist
+      if (routeError.code === "PGRST205" || routeError.message?.includes("Could not find the table")) {
+        return NextResponse.json(
+          { error: "Routes table not created yet. Please create the routes table in Supabase." },
+          { status: 404 }
+        );
+      }
       return NextResponse.json({ error: "Failed to fetch route" }, { status: 500 });
     }
 

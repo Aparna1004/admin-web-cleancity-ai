@@ -13,22 +13,17 @@ function getServiceClient(): SupabaseClient {
     );
   }
 
-  const key = SERVICE_ROLE_KEY || ANON_KEY;
-  if (!key) {
-    throw new Error(
-      "Supabase key is not configured. Set SUPABASE_SERVICE_ROLE_KEY (recommended) or SUPABASE_ANON_KEY / NEXT_PUBLIC_SUPABASE_ANON_KEY."
-    );
-  }
-
+  // CRITICAL: Always prefer SERVICE_ROLE_KEY for API routes to bypass RLS
+  // If SERVICE_ROLE_KEY is not set, throw error instead of falling back to ANON_KEY
+  // This prevents RLS-related 401 errors in API routes
   if (!SERVICE_ROLE_KEY) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      "[supabaseServer] Using anon key for server client. Ensure RLS allows required operations, or configure SUPABASE_SERVICE_ROLE_KEY."
+    throw new Error(
+      "SUPABASE_SERVICE_ROLE_KEY is required for API routes to bypass RLS. Set SUPABASE_SERVICE_ROLE_KEY in your environment."
     );
   }
 
   if (!serviceClient) {
-    serviceClient = createClient(SUPABASE_URL, key, {
+    serviceClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
       auth: {
         persistSession: false,
       },

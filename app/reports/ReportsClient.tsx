@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
-import { type ReportStatus } from "../../lib/mockReports";
 
 export type ReportItem = {
   id: string;
@@ -16,56 +15,82 @@ export type ReportItem = {
   attention?: boolean;
 };
 
-export function ReportsClient({ reports = [] as ReportItem[] }: { reports?: ReportItem[] }) {
+export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
   const router = useRouter();
-  const safeReports = reports || [];
-  const [rows, setRows] = useState<ReportItem[]>(safeReports);
+
+  const [rows, setRows] = useState<ReportItem[]>(reports);
   const [selected, setSelected] = useState<ReportItem | null>(null);
-  const [severityDraft, setSeverityDraft] = useState<string>("low");
+  const [severityDraft, setSeverityDraft] = useState("low");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showAttentionOnly, setShowAttentionOnly] = useState(true);
 
-  // Sync local state with props when reports change (e.g., after page refresh)
-  useEffect(() => {
-    setRows(safeReports);
-  }, [safeReports]);
+  // 🔒 PERMANENT mutation guard (does NOT reset on refresh)
+  const processedIds = useRef<Set<string>>(new Set());
 
-  const normalizeStatus = (value: string | null): ReportStatus => {
-    const normalized = (value || "").toLowerCase();
-    switch (normalized) {
-      case "new":
-      case "open":
-        return "New";
-      case "in review":
-      case "review":
-        return "In Review";
-      case "dispatched":
-      case "assigned":
-        return "Dispatched";
-      case "closed":
-      case "resolved":
-        return "Closed";
-      default:
-        return "New";
+  // Sync rows only (DO NOT reset processedIds)
+  useEffect(() => {
+    setRows(reports ?? []);
+  }, [reports]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const v = (selected.severity || "").toLowerCase();
+    setSeverityDraft(v === "low" || v === "medium" || v === "high" ? v : "low");
+  }, [selected]);
+
+  const handleDelete = async (id: string) => {
+    if (processedIds.current.has(id) || deletingId === id) return;
+    if (!window.confirm("Delete this report?")) return;
+
+    processedIds.current.add(id);
+    setDeletingId(id);
+    setError(null);
+
+    // Optimistic UI
+    setRows((prev) => prev.filter((r) => r.id !== id));
+    setSelected((s) => (s?.id === id ? null : s));
+
+    try {
+      const res = await fetch(`/api/reports/${id}`, { method: "DELETE" });
+
+      if (res.status === 404) {
+        router.refresh();
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error("Delete failed");
+      }
+
+      router.refresh();
+    } catch (err) {
+      console.error(err);
+      setError("Failed to delete report");
+    } finally {
+      setDeletingId(null);
     }
   };
 
-  useEffect(() => {
-    if (!selected) return;
-    const normalized = (selected.severity || "").toLowerCase();
-    if (normalized === "high" || normalized === "medium" || normalized === "low") {
-      setSeverityDraft(normalized);
-    } else {
-      setSeverityDraft("low");
-    }
-  }, [selected]);
-
   const handleSaveSeverity = async () => {
-    if (!selected) return;
+    if (!selected || saving) return;
+    if (processedIds.current.has(selected.id)) return;
+
+    processedIds.current.add(selected.id);
     setSaving(true);
     setError(null);
+
+    const uiSeverity =
+      severityDraft.charAt(0).toUpperCase() + severityDraft.slice(1);
+
+    // Optimistic UI
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === selected.id ? { ...r, severity: uiSeverity } : r
+      )
+    );
+    setSelected({ ...selected, severity: uiSeverity });
 
     try {
       const res = await fetch(`/api/reports/${selected.id}`, {
@@ -74,187 +99,110 @@ export function ReportsClient({ reports = [] as ReportItem[] }: { reports?: Repo
         body: JSON.stringify({ severity: severityDraft }),
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error || "Failed to update severity");
+      if (res.status === 404) {
+        setRows((prev) => prev.filter((r) => r.id !== selected.id));
+        setSelected(null);
+        router.refresh();
         return;
       }
 
-      // Update local state so the table reflects the new severity.
-      const uiSeverity = severityDraft.charAt(0).toUpperCase() + severityDraft.slice(1);
-      setRows((prev) =>
-        prev.map((r) => (r.id === selected.id ? { ...r, severity: uiSeverity } : r))
-      );
-      setSelected((prev) => (prev ? { ...prev, severity: uiSeverity } : prev));
-    } catch (err) {
-      console.error("[ReportsClient] Failed to update severity", err);
-      setError("Unexpected error while updating severity");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!window.confirm("Delete this report? This action cannot be undone.")) return;
-
-    setDeletingId(id);
-    setError(null);
-
-    try {
-      const res = await fetch(`/api/reports/${id}`, {
-        method: "DELETE",
-      });
-
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error || "Failed to delete report");
-        if (res.status === 404) {
-          // Stale card: remove locally so UI reflects DB.
-          setRows((prev) => prev.filter((r) => r.id !== id));
-          setSelected((prev) => (prev && prev.id === id ? null : prev));
-        }
-        return;
+        throw new Error("Update failed");
       }
 
-      setRows((prev) => prev.filter((r) => r.id !== id));
-      setSelected((prev) => (prev && prev.id === id ? null : prev));
-      // Force refresh server data to ensure UI matches database
       router.refresh();
     } catch (err) {
-      console.error("[ReportsClient] Failed to delete report", err);
-      setError("Unexpected error while deleting report");
+      console.error(err);
+      setError("Failed to update severity");
     } finally {
-      setDeletingId(null);
+      setSaving(false);
     }
   };
 
   return (
     <AppShell>
       <div className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Reports</h2>
-            <span className="text-sm text-slate-600">{rows.length} records</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-slate-700 font-semibold">Attention only</label>
+        <div className="flex justify-between items-center">
+          <h2 className="text-lg font-semibold">Reports</h2>
+          <label className="flex items-center gap-2 text-sm">
+            Attention only
             <input
               type="checkbox"
               checked={showAttentionOnly}
               onChange={(e) => setShowAttentionOnly(e.target.checked)}
-              className="h-4 w-4 accent-indigo-600"
             />
-          </div>
+          </label>
         </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {rows
-            .filter((report) => (showAttentionOnly ? report.attention : true))
-            .map((report) => (
-            <div
-              key={report.id}
-              className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
-            >
-              <div className="h-40 w-full overflow-hidden bg-slate-100">
+            .filter((r) => (showAttentionOnly ? r.attention : true))
+            .map((r) => (
+              <div key={r.id} className="border rounded-lg p-3">
                 <img
-                  src={report.image_url || "/placeholder.png"}
-                  alt={report.location || "Report image"}
-                  className="h-full w-full object-cover"
+                  src={r.image_url || "/placeholder.png"}
+                  className="h-40 w-full object-cover rounded"
                 />
-              </div>
-              <div className="flex flex-1 flex-col px-4 py-3 space-y-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900 line-clamp-2">
-                      {report.location || "Unknown location"}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {report.created_at?.slice(0, 10) || ""}
-                    </p>
-                  </div>
-                  <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
-                    {normalizeStatus(report.status)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">
-                    Severity: {report.severity || "Low"}
-                  </span>
-                </div>
-                {report.description && (
-                  <p className="text-xs text-slate-600 line-clamp-2">{report.description}</p>
-                )}
-                <div className="mt-2 flex items-center justify-between gap-2">
+                <p className="font-semibold mt-2">{r.location}</p>
+                <p className="text-xs text-gray-500">
+                  {r.created_at?.slice(0, 10)}
+                </p>
+
+                <div className="flex gap-2 mt-2">
                   <button
-                    onClick={() => setSelected(report)}
-                    className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    onClick={() => setSelected(r)}
+                    className="flex-1 border rounded px-2 py-1 text-xs"
                   >
                     View
                   </button>
                   <button
-                    onClick={() => handleDelete(report.id)}
-                    disabled={deletingId === report.id}
-                    className="rounded-lg bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-70"
+                    onClick={() => handleDelete(r.id)}
+                    disabled={processedIds.current.has(r.id)}
+                    className="bg-red-100 text-red-700 rounded px-2 py-1 text-xs disabled:opacity-50"
                   >
-                    {deletingId === report.id ? "Deleting…" : "Delete"}
+                    {deletingId === r.id ? "Deleting…" : "Delete"}
                   </button>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
         </div>
-        {error && <p className="text-sm text-rose-600">{error}</p>}
+
+        {error && <p className="text-red-600 text-sm">{error}</p>}
       </div>
 
       {selected && (
-        <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-lg">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-bold text-slate-900">{selected.location || "Report"}</h3>
-              <button
-                onClick={() => setSelected(null)}
-                className="rounded-full border border-slate-200 px-2 py-1 text-sm font-semibold text-slate-700"
-              >
-                Close
-              </button>
-            </div>
-            <p className="text-sm text-slate-600 mt-1">
-              Severity: {selected.severity} • Status: {selected.status}
-            </p>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center">
+          <div className="bg-white p-6 rounded w-full max-w-lg">
+            <h3 className="font-bold">{selected.location}</h3>
 
-            <div className="mt-4 space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Set severity</label>
-              <select
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
-                value={severityDraft}
-                onChange={(e) => setSeverityDraft(e.target.value)}
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-              <button
-                onClick={handleSaveSeverity}
-                disabled={saving}
-                className="mt-2 inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-70"
-              >
-                {saving ? "Saving…" : "Save severity"}
-              </button>
-              {error && <p className="text-sm text-rose-600 mt-1">{error}</p>}
-            </div>
-            {selected.image_url && (
-              <img
-                src={selected.image_url}
-                alt={selected.location || "Report image"}
-                className="mt-4 h-48 w-full rounded-lg object-cover"
-              />
-            )}
-            <p className="mt-3 text-sm text-slate-700">{selected.description}</p>
+            <select
+              className="w-full border rounded mt-2"
+              value={severityDraft}
+              onChange={(e) => setSeverityDraft(e.target.value)}
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+
+            <button
+              onClick={handleSaveSeverity}
+              disabled={saving}
+              className="mt-3 bg-indigo-600 text-white px-4 py-2 rounded"
+            >
+              {saving ? "Saving…" : "Save severity"}
+            </button>
+
+            <button
+              onClick={() => setSelected(null)}
+              className="ml-2 border px-4 py-2 rounded"
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
     </AppShell>
   );
 }
-
-
-
+  

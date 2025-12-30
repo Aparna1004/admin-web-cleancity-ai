@@ -1,24 +1,61 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServiceClient, getUserFromRequest } from "../../../lib/supabaseServer";
 
+// Force dynamic rendering - always fetch fresh data, no caching
+export const dynamic = "force-dynamic";
+
 type BinRequestPayload = {
   latitude: number;
   longitude: number;
   address: string;
 };
 
+// CORS helper: add headers for cross-origin requests from Expo app
+function addCorsHeaders(response: NextResponse, origin?: string | null): NextResponse {
+  const allowedOrigins = [
+    "http://localhost:8081",
+    "http://localhost:19006",
+    "http://localhost:19000",
+    "exp://localhost:8081",
+    "http://localhost:3000"
+  ];
+  
+  const requestOrigin = origin || "";
+  const isAllowed = allowedOrigins.some((allowed) => requestOrigin.startsWith(allowed)) || !origin;
+  
+  if (isAllowed) {
+    response.headers.set("Access-Control-Allow-Origin", requestOrigin || "*");
+    response.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    response.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    response.headers.set("Access-Control-Allow-Credentials", "true");
+  }
+  
+  return response;
+}
+
+// Handle OPTIONS preflight requests
+export async function OPTIONS(req: Request) {
+  const origin = req.headers.get("origin");
+  const response = new NextResponse(null, { status: 204 });
+  return addCorsHeaders(response, origin);
+}
+
 // POST /api/bin-requests
 // Used by the Expo citizen app. Requires a Supabase access token (Bearer).
 export async function POST(req: Request) {
+  const origin = req.headers.get("origin");
+  
   try {
     const contentType = req.headers.get("content-type") ?? "";
     if (contentType && !contentType.toLowerCase().includes("application/json")) {
-      return NextResponse.json({ error: "Content-Type must be application/json" }, { status: 400 });
+      const response = NextResponse.json({ error: "Content-Type must be application/json" }, { status: 400 });
+      return addCorsHeaders(response, origin);
     }
 
     const { user, error: authError } = await getUserFromRequest(req);
     if (!user) {
-      return NextResponse.json({ error: authError ?? "Unauthorized" }, { status: 401 });
+      const response = NextResponse.json({ error: authError ?? "Unauthorized" }, { status: 401 });
+      return addCorsHeaders(response, origin);
     }
 
     let body: Partial<BinRequestPayload>;
@@ -49,7 +86,8 @@ export async function POST(req: Request) {
     }
 
     if (addressStr.length > 512) {
-      return NextResponse.json({ error: "Address is too long (max 512 characters)" }, { status: 400 });
+      const response = NextResponse.json({ error: "Address is too long (max 512 characters)" }, { status: 400 });
+      return addCorsHeaders(response, origin);
     }
 
     const supabase = getSupabaseServiceClient();
@@ -67,13 +105,16 @@ export async function POST(req: Request) {
 
     if (error) {
       console.error("[bin-requests:POST] Supabase error inserting bin request", error);
-      return NextResponse.json({ error: "Failed to create bin request" }, { status: 500 });
+      const response = NextResponse.json({ error: "Failed to create bin request" }, { status: 500 });
+      return addCorsHeaders(response, origin);
     }
 
-    return NextResponse.json(data, { status: 201 });
+    const response = NextResponse.json(data, { status: 201 });
+    return addCorsHeaders(response, origin);
   } catch (err) {
     console.error("[bin-requests:POST] Unexpected error", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const response = NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return addCorsHeaders(response, req.headers.get("origin"));
   }
 }
 
@@ -83,10 +124,13 @@ export async function POST(req: Request) {
 //   limit       -> page size (default 50, max 200)
 //   offset      -> offset for pagination (default 0)
 export async function GET(req: Request) {
+  const origin = req.headers.get("origin");
+  
   try {
     const { user, error: authError } = await getUserFromRequest(req);
     if (!user) {
-      return NextResponse.json({ error: authError ?? "Unauthorized" }, { status: 401 });
+      const response = NextResponse.json({ error: authError ?? "Unauthorized" }, { status: 401 });
+      return addCorsHeaders(response, origin);
     }
 
     const supabase = getSupabaseServiceClient();
@@ -116,13 +160,16 @@ export async function GET(req: Request) {
 
     if (error) {
       console.error("[bin-requests:GET] Supabase error fetching bin requests", error);
-      return NextResponse.json({ error: "Failed to fetch bin requests" }, { status: 500 });
+      const response = NextResponse.json({ error: "Failed to fetch bin requests" }, { status: 500 });
+      return addCorsHeaders(response, origin);
     }
 
-    return NextResponse.json(data ?? [], { status: 200 });
+    const response = NextResponse.json(data ?? [], { status: 200 });
+    return addCorsHeaders(response, origin);
   } catch (err) {
     console.error("[bin-requests:GET] Unexpected error", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const response = NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return addCorsHeaders(response, req.headers.get("origin"));
   }
 }
 
