@@ -24,11 +24,11 @@ select id, true from public.users where email = 'worker@example.com'
 on conflict (user_id) do nothing;
 
 -- REPORTS by citizen
-insert into public.reports (user_id, description, image_url, latitude, longitude, address, severity, status)
-select u.id, 'Overflowing bins near MG Road', null, 12.9716, 77.5946, 'MG Road, Bengaluru', 'medium'::public.report_severity, 'pending'::public.report_status
+insert into public.reports (user_id, image_url, latitude, longitude, address, severity, status)
+select u.id, null, 12.9716, 77.5946, 'MG Road, Bengaluru', 'medium'::public.report_severity, 'pending'::public.report_status
 from public.users u where u.email = 'citizen@example.com'
 union all
-select u.id, 'Trash piling near Koramangala lane', null, 12.9352, 77.6245, 'Koramangala, Bengaluru', 'high'::public.report_severity, 'pending'::public.report_status
+select u.id, null, 12.9352, 77.6245, 'Koramangala, Bengaluru', 'high'::public.report_severity, 'pending'::public.report_status
 from public.users u where u.email = 'citizen@example.com';
 
 -- ROUTE assigned to worker

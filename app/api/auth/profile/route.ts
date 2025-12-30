@@ -1,57 +1,71 @@
-import { NextResponse } from 'next/server';
-import { getAuthAndUser, ensureRole } from '@/lib/auth';
+import { NextResponse } from "next/server";
+import { getSupabaseServiceClient, getUserFromRequest } from "../../../../../lib/supabaseServer";
 
-export async function POST(request: Request) {
-  const { supabase, authUser, appUser } = await getAuthAndUser(request);
-  if (!authUser) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  const body = await request.json().catch(() => ({}));
-  const { name, phone, role } = body as {
-    name?: string;
-    phone?: string;
-    role?: 'citizen' | 'worker' | 'admin';
-  };
-
-  const payload: any = {};
-  if (typeof name === 'string') payload.name = name;
-  if (typeof phone === 'string') payload.phone = phone;
-  if (role && ensureRole(appUser, ['admin'])) {
-    payload.role = role;
-  }
-
-  // Ensure a users row exists; if not, insert
-  if (!appUser) {
-    const insertBody = {
-      id: authUser.id,
-      email: authUser.email,
-      name: payload.name ?? null,
-      phone: payload.phone ?? null,
-      role: payload.role ?? 'citizen',
-    };
-    const { data, error } = await supabase.from('users').insert(insertBody).select('*').single();
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+// GET /api/auth/profile
+// Returns the row from public.users associated with the authenticated user.
+export async function GET(req: Request) {
+  try {
+    const { user, error } = await getUserFromRequest(req);
+    if (!user) {
+      return NextResponse.json({ error: error ?? "Unauthorized" }, { status: 401 });
     }
-    return NextResponse.json({ user: data }, { status: 201 });
+
+    const supabase = getSupabaseServiceClient();
+    const { data, error: dbError } = await supabase.from("users").select("*").eq("id", user.id).single();
+
+    if (dbError) {
+      console.error("[auth/profile:GET] Supabase error fetching profile", dbError);
+      return NextResponse.json({ error: "Failed to fetch profile" }, { status: 500 });
+    }
+
+    return NextResponse.json(data, { status: 200 });
+  } catch (err) {
+    console.error("[auth/profile:GET] Unexpected error", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
+}
 
-  if (Object.keys(payload).length === 0) {
-    return NextResponse.json({ user: appUser }, { status: 200 });
+// PATCH /api/auth/profile
+// Body may contain { name?: string, phone?: string }
+export async function PATCH(req: Request) {
+  try {
+    const { user, error } = await getUserFromRequest(req);
+    if (!user) {
+      return NextResponse.json({ error: error ?? "Unauthorized" }, { status: 401 });
+    }
+
+    const body = (await req.json()) as { name?: string; phone?: string };
+    const update: { name?: string; phone?: string } = {};
+
+    if (body.name && typeof body.name === "string") {
+      update.name = body.name;
+    }
+    if (body.phone && typeof body.phone === "string") {
+      update.phone = body.phone;
+    }
+
+    if (!Object.keys(update).length) {
+      return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
+    }
+
+    const supabase = getSupabaseServiceClient();
+    const { data, error: dbError } = await supabase
+      .from("users")
+      .update(update)
+      .eq("id", user.id)
+      .select()
+      .single();
+
+    if (dbError) {
+      console.error("[auth/profile:PATCH] Supabase error updating profile", dbError);
+      return NextResponse.json({ error: "Failed to update profile" }, { status: 500 });
+    }
+
+    return NextResponse.json(data, { status: 200 });
+  } catch (err) {
+    console.error("[auth/profile:PATCH] Unexpected error", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-
-  const { data, error } = await supabase
-    .from('users')
-    .update(payload)
-    .eq('id', authUser.id)
-    .select('*')
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
-  }
-
-  return NextResponse.json({ user: data });
 }
 
 

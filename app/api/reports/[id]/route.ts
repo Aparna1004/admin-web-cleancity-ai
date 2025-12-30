@@ -1,81 +1,111 @@
-import { NextResponse } from 'next/server';
-import { getAuthAndUser, ensureRole } from '@/lib/auth';
-import { createSupabaseServer } from '@/lib/supabase/server';
+import { NextResponse } from "next/server";
+import { getSupabaseServiceClient, getUserFromRequest } from "../../../../lib/supabaseServer";
 
-export async function GET(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
-  const { authUser } = await getAuthAndUser(req);
-  if (!authUser) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+// PATCH /api/reports/:id
+// Allows admin/worker to update severity (e.g. from ML suggestion or manual override).
+// Body: { severity: "low" | "medium" | "high" }
+export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+  try {
+    const { user, error: authError } = await getUserFromRequest(req);
+    const hasServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    const isAdminOrWorker =
+      (user?.user_metadata?.role ?? "") === "admin" ||
+      (user?.user_metadata?.role ?? "") === "worker" ||
+      (!user && hasServiceRole); // allow server-side service role fallback
+
+    if (!user && !hasServiceRole) {
+      return NextResponse.json({ error: authError ?? "Unauthorized" }, { status: 401 });
+    }
+    if (!isAdminOrWorker) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    let payload: { severity?: string };
+    try {
+      payload = (await req.json()) as { severity?: string };
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    const severityRaw = (payload.severity ?? "").toString().toLowerCase().trim();
+    const allowed = ["low", "medium", "high"] as const;
+
+    if (!allowed.includes(severityRaw as any)) {
+      return NextResponse.json(
+        { error: "Invalid severity. Expected one of: low, medium, high" },
+        { status: 400 }
+      );
+    }
+
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from("reports")
+      .update({ severity: severityRaw })
+      .eq("id", params.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("[reports/:id:PATCH] Supabase error updating severity", error);
+      return NextResponse.json({ error: "Failed to update report severity" }, { status: 500 });
+    }
+
+    if (!data) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(data, { status: 200 });
+  } catch (err) {
+    console.error("[reports/:id:PATCH] Unexpected error", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-  const supabase = createSupabaseServer(req);
-  const { data, error } = await supabase.from('reports').select('*').eq('id', params.id).single();
-  if (error?.code === 'PGRST116') {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
-  }
-  return NextResponse.json({ report: data });
 }
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
-  const { supabase, appUser, authUser } = await getAuthAndUser(request);
-  if (!authUser) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  console.log('[api/reports PATCH] auth user', authUser.id);
-  const body = await request.json().catch(() => ({}));
-  const { status, address, severity, image_url, description } = body as {
-    status?: 'pending' | 'assigned' | 'cleaned';
-    address?: string | null;
-    severity?: 'low' | 'medium' | 'high';
-    image_url?: string | null;
-    description?: string;
-  };
+// DELETE /api/reports/:id
+// Soft delete: mark status = 'deleted' (admin/worker or service role)
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  try {
+    const { user, error: authError } = await getUserFromRequest(req);
+    const hasServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  // Allow admin full, worker limited (status update), citizen no updates.
-  if (!ensureRole(appUser, ['admin', 'worker'])) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+    const isAdminOrWorker =
+      (user?.user_metadata?.role ?? "") === "admin" ||
+      (user?.user_metadata?.role ?? "") === "worker" ||
+      (!user && hasServiceRole); // allow server-side service role fallback
 
-  const update: any = {};
-  if (status) update.status = status;
-  if (ensureRole(appUser, ['admin'])) {
-    if (typeof address !== 'undefined') update.address = address;
-    if (severity) update.severity = severity;
-    if (typeof image_url !== 'undefined') update.image_url = image_url;
-    if (typeof description === 'string') update.description = description.trim();
-  }
+    if (!user && !hasServiceRole) {
+      return NextResponse.json({ error: authError ?? "Unauthorized" }, { status: 401 });
+    }
+    if (!isAdminOrWorker) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
 
-  if (Object.keys(update).length === 0) {
-    return NextResponse.json({ error: 'No changes' }, { status: 400 });
-  }
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from("reports")
+      .update({ status: "deleted", attention: false })
+      .eq("id", params.id)
+      .select();
 
-  const { data, error } = await supabase
-    .from('reports')
-    .update(update)
-    .eq('id', params.id)
-    .select('*')
-    .single();
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
-  }
+    if (error) {
+      console.error("[reports/:id:DELETE] Supabase error deleting report", error);
+      // If no rows match, return 404 explicitly.
+      if (error.code === "PGRST116") {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      return NextResponse.json({ error: "Failed to delete report" }, { status: 500 });
+    }
 
-  // Audit log for admin updates
-  if (ensureRole(appUser, ['admin'])) {
-    await supabase.from('audit_logs').insert({
-      admin_id: authUser.id,
-      action: `Updated report ${params.id} with ${JSON.stringify(update)}`,
-    });
-  }
+    const deleted = Array.isArray(data) ? data[0] : null;
+    if (!deleted) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
 
-  return NextResponse.json({ report: data });
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (err) {
+    console.error("[reports/:id:DELETE] Unexpected error", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
-
 

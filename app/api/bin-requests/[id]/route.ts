@@ -1,35 +1,68 @@
-import { NextResponse } from 'next/server';
-import { getAuthAndUser, ensureRole } from '@/lib/auth';
-import { createSupabaseServer } from '@/lib/supabase/server';
+import { NextResponse } from "next/server";
+import { getSupabaseServiceClient, getUserFromRequest } from "../../../../lib/supabaseServer";
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
-  const { supabase, appUser } = await getAuthAndUser(request);
-  if (!ensureRole(appUser, ['admin'])) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
-  const body = await request.json().catch(() => ({}));
-  const { status, address } = body as {
-    status?: 'requested' | 'approved' | 'installed';
-    address?: string;
-  };
+// GET /api/bin-requests/:id
+export async function GET(_: Request, { params }: { params: { id: string } }) {
+  try {
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase.from("bin_requests").select("*").eq("id", params.id).single();
 
-  const update: any = {};
-  if (status) update.status = status;
-  if (typeof address === 'string') update.address = address;
-  if (Object.keys(update).length === 0) {
-    return NextResponse.json({ error: 'No changes' }, { status: 400 });
-  }
+    if (error) {
+      console.error("[bin-requests/:id:GET] Supabase error", error);
+      return NextResponse.json({ error: "Failed to fetch bin request" }, { status: 500 });
+    }
 
-  const { data, error } = await supabase
-    .from('bin_requests')
-    .update(update)
-    .eq('id', params.id)
-    .select('*')
-    .single();
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+    if (!data) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    return NextResponse.json(data, { status: 200 });
+  } catch (err) {
+    console.error("[bin-requests/:id:GET] Unexpected error", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-  return NextResponse.json({ binRequest: data });
+}
+
+// PATCH /api/bin-requests/:id
+// Body: { status?: string }
+export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+  try {
+    const { user, error: authError } = await getUserFromRequest(req);
+    if (!user) {
+      return NextResponse.json({ error: authError ?? "Unauthorized" }, { status: 401 });
+    }
+
+    const role = (user.user_metadata?.role ?? "").toString();
+    const isAdminOrWorker = role === "admin" || role === "worker";
+    if (!isAdminOrWorker) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    const body = (await req.json()) as { status?: string | null };
+    const { status } = body;
+
+    if (!status || typeof status !== "string") {
+      return NextResponse.json({ error: "Missing or invalid status" }, { status: 400 });
+    }
+
+    const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from("bin_requests")
+      .update({ status })
+      .eq("id", params.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("[bin-requests/:id:PATCH] Supabase error updating bin request", error);
+      return NextResponse.json({ error: "Failed to update bin request" }, { status: 500 });
+    }
+
+    return NextResponse.json(data, { status: 200 });
+  } catch (err) {
+    console.error("[bin-requests/:id:PATCH] Unexpected error", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }
 
 
