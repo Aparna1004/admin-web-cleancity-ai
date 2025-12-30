@@ -9,7 +9,6 @@ export default async function ReportsPage() {
   const { data, error } = await supabase
     .from("reports")
     .select("id, image_url, description, severity, status, created_at, address, attention")
-    .not("status", "eq", "deleted")
     .order("created_at", { ascending: false });
 
   if (error) {

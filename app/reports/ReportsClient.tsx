@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
 import { type ReportStatus } from "../../lib/mockReports";
 
@@ -16,6 +17,7 @@ export type ReportItem = {
 };
 
 export function ReportsClient({ reports = [] as ReportItem[] }: { reports?: ReportItem[] }) {
+  const router = useRouter();
   const safeReports = reports || [];
   const [rows, setRows] = useState<ReportItem[]>(safeReports);
   const [selected, setSelected] = useState<ReportItem | null>(null);
@@ -24,6 +26,11 @@ export function ReportsClient({ reports = [] as ReportItem[] }: { reports?: Repo
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [showAttentionOnly, setShowAttentionOnly] = useState(true);
+
+  // Sync local state with props when reports change (e.g., after page refresh)
+  useEffect(() => {
+    setRows(safeReports);
+  }, [safeReports]);
 
   const normalizeStatus = (value: string | null): ReportStatus => {
     const normalized = (value || "").toLowerCase();
@@ -111,6 +118,8 @@ export function ReportsClient({ reports = [] as ReportItem[] }: { reports?: Repo
 
       setRows((prev) => prev.filter((r) => r.id !== id));
       setSelected((prev) => (prev && prev.id === id ? null : prev));
+      // Force refresh server data to ensure UI matches database
+      router.refresh();
     } catch (err) {
       console.error("[ReportsClient] Failed to delete report", err);
       setError("Unexpected error while deleting report");

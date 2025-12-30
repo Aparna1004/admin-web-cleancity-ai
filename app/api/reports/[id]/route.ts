@@ -63,7 +63,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 }
 
 // DELETE /api/reports/:id
-// Soft delete: mark status = 'deleted' (admin/worker or service role)
+// Soft delete: mark attention = false (admin/worker or service role)
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   try {
     const { user, error: authError } = await getUserFromRequest(req);
@@ -84,7 +84,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     const supabase = getSupabaseServiceClient();
     const { data, error } = await supabase
       .from("reports")
-      .update({ status: "deleted", attention: false })
+      .update({ attention: false })
       .eq("id", params.id)
       .select();
 
