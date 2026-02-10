@@ -2,6 +2,9 @@ import { AppShell } from "../../components/AppShell";
 import { OverviewCard } from "../../components/OverviewCard";
 import { getSupabaseServiceClient } from "../../lib/supabaseServer";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type ReportRow = {
   id: string;
   status: string | null;
@@ -22,20 +25,11 @@ export default async function DashboardPage() {
     { count: pendingBinRequests },
   ] = await Promise.all([
     supabase.from("reports").select("*", { head: true, count: "exact" }),
-    supabase
-      .from("reports")
-      .select("id", { head: true, count: "exact" })
-      .in("status", ["resolved", "closed"]),
-    supabase
-      .from("reports")
-      .select("id", { head: true, count: "exact" })
-      .or("status.is.null,status.eq.open,status.eq.pending"),
+    supabase.from("reports").select("id", { head: true, count: "exact" }).eq("status", "cleaned"),
+    supabase.from("reports").select("id", { head: true, count: "exact" }).eq("status", "pending"),
     supabase.from("workers").select("id", { head: true, count: "exact" }),
     supabase.from("bin_requests").select("id", { head: true, count: "exact" }),
-    supabase
-      .from("bin_requests")
-      .select("id", { head: true, count: "exact" })
-      .eq("status", "requested"),
+    supabase.from("bin_requests").select("id", { head: true, count: "exact" }).eq("status", "requested"),
   ]);
 
   // ---------- RECENT REPORTS (LAST 30 DAYS) ----------
@@ -46,7 +40,7 @@ export default async function DashboardPage() {
     .from("reports")
     .select("id, created_at, severity, status")
     .gte("created_at", since.toISOString())
-    .order("created_at", { ascending: true });
+    .order("created_at", { ascending: true});
 
   if (error) {
     console.error("[DashboardPage] recentReports error", error);
@@ -58,44 +52,55 @@ export default async function DashboardPage() {
 
   // ---------- LINE CHART (LAST 7 DAYS) ----------
   const dayCounts: { label: string; count: number }[] = [];
-  const today = new Date();
+const today = new Date();
 
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
+for (let i = 6; i >= 0; i--) {
+  const d = new Date(today);
+  d.setDate(today.getDate() - i);
 
-    const label = d.toLocaleDateString("en-US", { weekday: "short" });
-    const count = reports.filter((r) => {
-      if (!r.created_at) return false;
-      return new Date(r.created_at).toDateString() === d.toDateString();
-    }).length;
+  const count = reports.filter(
+    (r) =>
+      r.created_at &&
+      new Date(r.created_at).toDateString() === d.toDateString()
+  ).length;
 
-    dayCounts.push({ label, count });
-  }
+  dayCounts.push({
+    label: d.toLocaleDateString("en-US", { weekday: "short" }),
+    count,
+  });
+}
 
-  const maxLine = Math.max(...dayCounts.map((d) => d.count), 1);
-  const linePoints = dayCounts
-    .map(
-      (d, i) =>
-        `${(i / Math.max(dayCounts.length - 1, 1)) * 100},${
-          100 - (d.count / maxLine) * 100
-        }`
-    )
-    .join(" ");
+const maxLine = Math.max(...dayCounts.map((d) => d.count), 1);
+
+const linePoints = dayCounts
+  .map(
+    (d, i) =>
+      `${(i / (dayCounts.length - 1 || 1)) * 100},${
+        90 - (d.count / maxLine) * 80
+      }`
+  )
+  .join(" ");
 
   // ---------- SEVERITY MIX ----------
-  const severityCounts: Record<string, number> = {};
-  reports.forEach((r) => {
-    const key = r.severity ?? "unknown";
-    severityCounts[key] = (severityCounts[key] || 0) + 1;
-  });
+  const severityCounts: Record<string, number> = {
+  low: 0,
+  medium: 0,
+  high: 0,
+};
 
-  const bars = Object.entries(severityCounts).map(([zone, score]) => ({
-    zone,
-    score,
-  }));
+reports.forEach((r) => {
+  const key = (r.severity ?? "low").toLowerCase();
+  if (severityCounts[key] !== undefined) {
+    severityCounts[key]++;
+  }
+});
 
-  const maxBar = Math.max(...bars.map((b) => b.score), 1);
+const bars = Object.entries(severityCounts).map(([zone, score]) => ({
+  zone,
+  score,
+}));
+
+const maxBar = Math.max(...bars.map((b) => b.score), 1);
 
   console.log("[DashboardPage] severity bars", bars);
 
@@ -183,8 +188,7 @@ export default async function DashboardPage() {
                     <div
                       className={`w-full rounded-lg ${color} transition-all`}
                       style={{
-                        height: `${(b.score / maxBar) * 100}%`,
-                        minHeight: "12%",
+                        height: `${Math.max((b.score / maxBar) * 100,12)}%`,
                       }}
                     />
                   </div>
@@ -227,7 +231,10 @@ export default async function DashboardPage() {
                       {br.address || "Unknown address"}
                     </td>
                     <td className="px-5 py-3 text-sm text-slate-700">
-                      {br.latitude?.toFixed(4)}, {br.longitude?.toFixed(4)}
+                      {br.latitude !== null && br.longitude !== null
+  ? `${br.latitude.toFixed(4)}, ${br.longitude.toFixed(4)}`
+  : "—"}
+
                     </td>
                     <td className="px-5 py-3 text-sm">
                       <span

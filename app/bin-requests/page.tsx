@@ -2,7 +2,7 @@ import { BinRequestsClient, type BinRequestItem } from "./BinRequestsClient";
 import { getSupabaseServiceClient } from "../../lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
-
+export const revalidate=0;
 export default async function BinRequestsPage() {
   const supabase = getSupabaseServiceClient();
 
@@ -10,6 +10,7 @@ export default async function BinRequestsPage() {
     .from("bin_requests")
     .select("id, latitude, longitude, address, status, created_at, user_id")
     .order("created_at", { ascending: false });
+    console.log("BIN REQUESTS FROM DB:", data);
 
   if (error) {
     console.error("[BinRequestsPage] Failed to fetch bin requests", error);

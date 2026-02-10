@@ -9,7 +9,7 @@ export default async function ReportsPage() {
   const { data, error } = await supabase
     .from("reports")
     .select(
-      "id, image_url, description, severity, status, created_at, address, attention"
+      "id, image_url, description, severity, status, created_at, latitude, longitude, attention"
     )
     .order("created_at", { ascending: false });
 
@@ -28,7 +28,10 @@ export default async function ReportsPage() {
         : "Low",
     status: r.status ?? "new",
     created_at: r.created_at ?? null,
-    location: r.address ?? "Unknown location",
+    location: 
+    r.latitude && r.longitude 
+      ? `${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}`
+      : "Unknown location",
     attention: !!r.attention,
   }));
 
