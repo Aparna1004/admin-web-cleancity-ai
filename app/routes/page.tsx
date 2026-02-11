@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { AppShell } from "../../components/AppShell";
-import { getSupabaseServiceClient } from "../../lib/supabaseServer";
 
 type RouteData = {
   id: string;
@@ -13,11 +12,10 @@ type RouteData = {
 };
 
 export default async function RoutesPage() {
-  const supabase = getSupabaseServiceClient();
-
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3000"}/api/routes`, {
-    cache: "no-store",
-  });
+  const res = await fetch(
+    `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/routes`,
+    { cache: "no-store" }
+  );
 
   let routesData: RouteData[] = [];
   let errorMessage: string | null = null;
@@ -27,26 +25,51 @@ export default async function RoutesPage() {
   } else {
     const errorData = await res.json().catch(() => ({}));
     errorMessage = errorData.error || "Failed to load routes";
-    
-    // If routes table doesn't exist, show helpful message
-    if (res.status === 404 && errorData.error?.includes("Routes table not created")) {
-      errorMessage = "Routes table not created yet. Please create the routes table in Supabase.";
-    }
   }
 
   return (
     <AppShell>
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        {/* HEADER */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-900">Routes</h2>
-          {!errorMessage && <span className="text-sm text-slate-600">{routesData.length} active</span>}
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Routes</h2>
+            {!errorMessage && (
+              <span className="text-sm text-slate-600">
+                {routesData.length} active
+              </span>
+            )}
+          </div>
+
+          {/* CREATE ROUTES BUTTON */}
+          <form
+            action={async () => {
+              "use server";
+              await fetch(
+                `${process.env.NEXT_PUBLIC_ROUTING_SERVICE_URL}/routes/create`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    date: new Date().toISOString().slice(0, 10),
+                  }),
+                }
+              );
+            }}
+          >
+            <button
+              type="submit"
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+            >
+              Create Routes
+            </button>
+          </form>
         </div>
+
+        {/* CONTENT */}
         {errorMessage ? (
           <div className="px-5 py-8 text-center">
-            <p className="text-slate-700 mb-2">{errorMessage}</p>
-            <p className="text-sm text-slate-500">
-              The routes table needs to be created in Supabase before routes can be displayed.
-            </p>
+            <p className="text-slate-700">{errorMessage}</p>
           </div>
         ) : routesData.length === 0 ? (
           <div className="px-5 py-8 text-center text-slate-500">
@@ -65,11 +88,22 @@ export default async function RoutesPage() {
             </thead>
             <tbody>
               {routesData.map((route) => (
-                <tr key={route.id} className="border-t border-slate-100 hover:bg-slate-50">
-                  <td className="px-5 py-3 font-semibold text-slate-900">{route.name}</td>
-                  <td className="px-5 py-3 text-slate-700">{route.zone || "—"}</td>
-                  <td className="px-5 py-3 text-slate-700">{route.stops}</td>
-                  <td className="px-5 py-3 text-slate-700">{route.worker}</td>
+                <tr
+                  key={route.id}
+                  className="border-t border-slate-100 hover:bg-slate-50"
+                >
+                  <td className="px-5 py-3 font-semibold text-slate-900">
+                    {route.name}
+                  </td>
+                  <td className="px-5 py-3 text-slate-700">
+                    {route.zone ?? "—"}
+                  </td>
+                  <td className="px-5 py-3 text-slate-700">
+                    {route.stops}
+                  </td>
+                  <td className="px-5 py-3 text-slate-700">
+                    {route.worker}
+                  </td>
                   <td className="px-5 py-3 text-right">
                     <Link
                       href={`/routes/${route.id}`}
@@ -87,5 +121,3 @@ export default async function RoutesPage() {
     </AppShell>
   );
 }
-
-

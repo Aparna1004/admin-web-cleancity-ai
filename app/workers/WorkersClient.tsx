@@ -17,7 +17,7 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
   const [selected, setSelected] = useState<WorkerRow | null>(null);
   const [routeId, setRouteId] = useState("");
   const [notes, setNotes] = useState("");
-  const [assigning, setAssigning] = useState(false);
+  const [assigning, setAssigning] = useState(false);  
   const [error, setError] = useState<string | null>(null);
 
   // Fetch available routes when modal opens
@@ -25,7 +25,7 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
 
   useEffect(() => {
     if (selected) {
-      fetch("/api/routes")
+      fetch("/api/routes?status=pending")
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) {

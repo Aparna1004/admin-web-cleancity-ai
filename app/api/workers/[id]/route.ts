@@ -9,7 +9,7 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
 
     const { data: worker, error: workerError } = await supabase
       .from("workers")
-      .select("id, user_id, active")
+      .select("id, user_id, zone")
       .eq("id", params.id)
       .single();
 

@@ -7,8 +7,8 @@ export default async function WorkersPage() {
 
   const { data: workerRows, error } = await supabase
     .from("workers")
-    .select("id, name, active, zone")
-    .order("id", { ascending: true });
+    .select("user_id, name, active, zone")
+    .order("name", { ascending: true });
 
   if (error) {
     console.error("[WorkersPage] Failed to fetch workers", error);
@@ -17,7 +17,7 @@ export default async function WorkersPage() {
   const rows = Array.isArray(workerRows) ? workerRows : [];
 
   const workers: WorkerRow[] = rows.map((w: any) => ({
-    id: w.id,
+    id: w.user_id,
     active: !!w.active,
     zone: w.zone ?? "Unknown",
     profiles: { full_name: w.name ?? "Worker" },

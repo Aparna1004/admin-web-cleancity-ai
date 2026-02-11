@@ -22,24 +22,27 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
   const [selected, setSelected] = useState<ReportItem | null>(null);
   const [severityDraft, setSeverityDraft] = useState("low");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [showAttentionOnly, setShowAttentionOnly] = useState(true);
 
-  // 🔒 PERMANENT mutation guard (does NOT reset on refresh)
+  // 🔒 prevents double mutation
   const processedIds = useRef<Set<string>>(new Set());
 
-  // Sync rows only (DO NOT reset processedIds)
+  /* 🔁 ALWAYS resync from server */
   useEffect(() => {
     setRows(reports ?? []);
+    processedIds.current.clear(); // ✅ VERY IMPORTANT
   }, [reports]);
 
   useEffect(() => {
     if (!selected) return;
     const v = (selected.severity || "").toLowerCase();
-    setSeverityDraft(v === "low" || v === "medium" || v === "high" ? v : "low");
+    setSeverityDraft(["low", "medium", "high"].includes(v) ? v : "low");
   }, [selected]);
 
+  /* ================= DELETE ================= */
   const handleDelete = async (id: string) => {
     if (processedIds.current.has(id) || deletingId === id) return;
     if (!window.confirm("Delete this report?")) return;
@@ -48,19 +51,15 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
     setDeletingId(id);
     setError(null);
 
-    // Optimistic UI
+    // optimistic UI
     setRows((prev) => prev.filter((r) => r.id !== id));
-    setSelected((s) => (s?.id === id ? null : s));
+    setSelected(null);
 
     try {
       const res = await fetch(`/api/reports/${id}`, { method: "DELETE" });
 
-      if (res.status === 404) {
-        router.refresh();
-        return;
-      }
-
-      if (!res.ok) {
+      // 404 = already deleted → SUCCESS
+      if (res.status !== 200 && res.status !== 404) {
         throw new Error("Delete failed");
       }
 
@@ -68,14 +67,15 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
     } catch (err) {
       console.error(err);
       setError("Failed to delete report");
+      router.refresh();
     } finally {
       setDeletingId(null);
     }
   };
 
+  /* ================= SEVERITY ================= */
   const handleSaveSeverity = async () => {
-    if (!selected || saving) return;
-    if (processedIds.current.has(selected.id)) return;
+    if (!selected || saving || processedIds.current.has(selected.id)) return;
 
     processedIds.current.add(selected.id);
     setSaving(true);
@@ -84,13 +84,11 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
     const uiSeverity =
       severityDraft.charAt(0).toUpperCase() + severityDraft.slice(1);
 
-    // Optimistic UI
     setRows((prev) =>
       prev.map((r) =>
         r.id === selected.id ? { ...r, severity: uiSeverity } : r
       )
     );
-    setSelected({ ...selected, severity: uiSeverity });
 
     try {
       const res = await fetch(`/api/reports/${selected.id}`, {
@@ -99,23 +97,46 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
         body: JSON.stringify({ severity: severityDraft }),
       });
 
-      if (res.status === 404) {
-        setRows((prev) => prev.filter((r) => r.id !== selected.id));
-        setSelected(null);
-        router.refresh();
-        return;
-      }
-
-      if (!res.ok) {
-        throw new Error("Update failed");
-      }
-
+      if (!res.ok) throw new Error("Update failed");
       router.refresh();
     } catch (err) {
       console.error(err);
       setError("Failed to update severity");
+      router.refresh();
     } finally {
       setSaving(false);
+    }
+  };
+
+  /* ================= RESOLVE ================= */
+  const handleResolve = async () => {
+    if (!selected || resolving || processedIds.current.has(selected.id)) return;
+
+    processedIds.current.add(selected.id);
+    setResolving(true);
+    setError(null);
+
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === selected.id ? { ...r, status: "resolved" } : r
+      )
+    );
+
+    try {
+      const res = await fetch(`/api/reports/${selected.id}/resolve`, {
+        method: "POST",
+      });
+
+      if (!res.ok) throw new Error("Resolve failed");
+
+      setSelected(null);
+      router.refresh();
+    } catch (err) {
+      console.error(err);
+      setError("Failed to resolve report");
+      router.refresh();
+    } finally {
+      setResolving(false);
     }
   };
 
@@ -145,7 +166,7 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
                 />
                 <p className="font-semibold mt-2">{r.location}</p>
                 <p className="text-xs text-gray-500">
-                  {r.created_at?.slice(0, 10)}
+                  {r.created_at?.slice(0, 10)} • {r.status}
                 </p>
 
                 <div className="flex gap-2 mt-2">
@@ -170,13 +191,14 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
         {error && <p className="text-red-600 text-sm">{error}</p>}
       </div>
 
+      {/* MODAL */}
       {selected && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center">
-          <div className="bg-white p-6 rounded w-full max-w-lg">
+          <div className="bg-white p-6 rounded w-full max-w-lg space-y-3">
             <h3 className="font-bold">{selected.location}</h3>
 
             <select
-              className="w-full border rounded mt-2"
+              className="w-full border rounded"
               value={severityDraft}
               onChange={(e) => setSeverityDraft(e.target.value)}
             >
@@ -185,24 +207,33 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
               <option value="high">High</option>
             </select>
 
-            <button
-              onClick={handleSaveSeverity}
-              disabled={saving}
-              className="mt-3 bg-indigo-600 text-white px-4 py-2 rounded"
-            >
-              {saving ? "Saving…" : "Save severity"}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleSaveSeverity}
+                disabled={saving}
+                className="bg-indigo-600 text-white px-4 py-2 rounded"
+              >
+                {saving ? "Saving…" : "Save severity"}
+              </button>
 
-            <button
-              onClick={() => setSelected(null)}
-              className="ml-2 border px-4 py-2 rounded"
-            >
-              Close
-            </button>
+              <button
+                onClick={handleResolve}
+                disabled={resolving || selected.status === "resolved"}
+                className="bg-emerald-600 text-white px-4 py-2 rounded disabled:opacity-60"
+              >
+                {resolving ? "Resolving…" : "Resolve"}
+              </button>
+
+              <button
+                onClick={() => setSelected(null)}
+                className="border px-4 py-2 rounded"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
     </AppShell>
   );
 }
-  
