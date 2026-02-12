@@ -11,8 +11,8 @@ export default async function ReportsPage() {
     .select(
       "id, image_url, description, severity, status, created_at, latitude, longitude, attention"
     )
-    .eq("attention", true)              // ✅ only attention
-    .neq("status", "cleaned")          // ✅ hide resolved (IMPORTANT)
+    .neq("status", "assigned")
+    .neq("status", "cleaned")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -37,6 +37,6 @@ export default async function ReportsPage() {
     attention: !!r.attention,
   }));
 
-  // 🔥 KEY IS REQUIRED — forces remount after delete
+  // console.log("[ReportsPage] Fetched reports", reports);
   return <ReportsClient key={reports.length} reports={reports} />;
 }
