@@ -2,7 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 import { AppShell } from "../../components/AppShell";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export type ReportItem = {
   id: string;
@@ -29,7 +35,6 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
 
   const processedIds = useRef<Set<string>>(new Set());
 
-  /* 🔁 Always sync from server */
   useEffect(() => {
     setRows(reports ?? []);
     processedIds.current.clear();
@@ -54,7 +59,9 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
     setSelected(null);
 
     try {
-      const res = await fetch(`/api/reports/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/reports/${id}`, {
+        method: "DELETE",
+      });
 
       if (res.status !== 200 && res.status !== 404) {
         throw new Error("Delete failed");
@@ -90,7 +97,9 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
     try {
       const res = await fetch(`/api/reports/${selected.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ severity: severityDraft }),
       });
 
@@ -114,25 +123,28 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
     setResolving(true);
     setError(null);
 
-    setRows((prev) =>
-      prev.map((r) =>
-        r.id === selected.id ? { ...r, status: "resolved" } : r
-      )
-    );
-
     try {
       const res = await fetch(`/api/reports/${selected.id}/resolve`, {
         method: "POST",
       });
 
-      if (!res.ok) throw new Error("Resolve failed");
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Resolve failed");
+      }
+
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === selected.id ? { ...r, status: "resolved" } : r
+        )
+      );
 
       setSelected(null);
       router.refresh();
     } catch (err) {
       console.error(err);
       setError("Failed to resolve report");
-      router.refresh();
     } finally {
       setResolving(false);
     }
@@ -153,7 +165,6 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
           </label>
         </div>
 
-        {/* REPORT GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {rows
             .filter((r) => (showAttentionOnly ? r.attention : true))
@@ -171,18 +182,7 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
                     {r.created_at?.slice(0, 10)} • {r.status}
                   </p>
 
-                  {/* ✅ SEVERITY BADGE RESTORED */}
-                  <span
-                    className={`text-xs font-semibold px-2 py-1 rounded-full
-                      ${
-                        r.severity?.toLowerCase() === "high"
-                          ? "bg-red-100 text-red-700"
-                          : r.severity?.toLowerCase() === "medium"
-                          ? "bg-yellow-100 text-yellow-700"
-                          : "bg-green-100 text-green-700"
-                      }
-                    `}
-                  >
+                  <span className="text-xs font-semibold px-2 py-1 rounded-full bg-slate-100">
                     {r.severity || "Low"}
                   </span>
                 </div>
@@ -197,8 +197,7 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
 
                   <button
                     onClick={() => handleDelete(r.id)}
-                    disabled={processedIds.current.has(r.id)}
-                    className="bg-red-100 text-red-700 rounded px-2 py-1 text-xs disabled:opacity-50"
+                    className="bg-red-100 text-red-700 rounded px-2 py-1 text-xs"
                   >
                     {deletingId === r.id ? "Deleting…" : "Delete"}
                   </button>
@@ -210,7 +209,6 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
         {error && <p className="text-red-600 text-sm">{error}</p>}
       </div>
 
-      {/* MODAL */}
       {selected && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center">
           <div className="bg-white p-6 rounded w-full max-w-lg space-y-3">
@@ -235,13 +233,13 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
                 {saving ? "Saving…" : "Save severity"}
               </button>
 
-              <button
-                onClick={handleResolve}
-                disabled={resolving || selected.status === "resolved"}
-                className="bg-emerald-600 text-white px-4 py-2 rounded disabled:opacity-60"
+             <button
+                onClick={() => handleDelete(selected.id)}
+                className="bg-red-600 text-white px-4 py-2 rounded"
               >
-                {resolving ? "Resolving…" : "Resolve"}
+                Delete Report
               </button>
+
 
               <button
                 onClick={() => setSelected(null)}
