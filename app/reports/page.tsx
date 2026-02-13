@@ -15,6 +15,8 @@ export default async function ReportsPage() {
     .neq("status", "cleaned")
     .order("created_at", { ascending: false });
 
+  console.log("[ReportsPage] Supabase response", { data, error });
+
   if (error) {
     console.error("[ReportsPage] Failed to fetch reports", error);
   }

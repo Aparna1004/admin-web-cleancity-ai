@@ -232,15 +232,6 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
               >
                 {saving ? "Saving…" : "Save severity"}
               </button>
-
-             <button
-                onClick={() => handleDelete(selected.id)}
-                className="bg-red-600 text-white px-4 py-2 rounded"
-              >
-                Delete Report
-              </button>
-
-
               <button
                 onClick={() => setSelected(null)}
                 className="border px-4 py-2 rounded"
