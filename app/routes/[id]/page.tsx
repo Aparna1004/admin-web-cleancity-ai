@@ -53,7 +53,7 @@ export default async function RouteDetailPage({
             <div>
               <h2 className="text-xl font-bold">{route.name}</h2>
               <p className="text-sm text-slate-600">
-                Zone {route.zone ?? "N/A"} • {route.stop_names.length} checkpoints
+                Zone {route.zone ?? "N/A"} • {(route.stop_names ?? []).length} checkpoints
               </p>
             </div>
 
@@ -86,13 +86,13 @@ export default async function RouteDetailPage({
         <div className="rounded-xl border bg-white p-5 shadow-sm">
           <h3 className="text-lg font-semibold mb-4">Checkpoints</h3>
 
-          {route.stop_names.length === 0 ? (
+          {(route.stop_names ?? []).length === 0 ? (
             <p className="text-slate-500 text-sm text-center">
               No checkpoints defined
             </p>
           ) : (
             <div className="space-y-3">
-              {route.stop_names.map((name, index) => (
+              {(route.stop_names ?? []).map((name, index) => (
                 <div
                   key={index}
                   className="flex items-start gap-3 border rounded-lg p-3"

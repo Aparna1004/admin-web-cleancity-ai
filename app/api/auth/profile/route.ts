@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseServiceClient, getUserFromRequest } from "../../../../../lib/supabaseServer";
+import { getSupabaseServiceClient, getUserFromRequest } from "../../../../lib/supabaseServer";
 
 // GET /api/auth/profile
 // Returns the row from public.users associated with the authenticated user.

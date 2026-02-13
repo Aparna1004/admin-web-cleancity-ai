@@ -25,83 +25,70 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
 
 // PATCH /api/bin-requests/:id
 // Body: { status?: string }
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  try {
-    const { user, error: authError } = await getUserFromRequest(req);
-    const hasServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+  export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+    try {
+      const { user, error: authError } = await getUserFromRequest(req);
+      const hasServiceRole = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    const isAdminOrWorker =
-      (user?.user_metadata?.role ?? "") === "admin" ||
-      (user?.user_metadata?.role ?? "") === "worker" ||
-      (!user && hasServiceRole); // allow server-side service role fallback
+      const isAdminOrWorker =
+        (user?.user_metadata?.role ?? "") === "admin" ||
+        (user?.user_metadata?.role ?? "") === "worker" ||
+        (!user && hasServiceRole);
 
-    if (!user && !hasServiceRole) {
-      return NextResponse.json({ error: authError ?? "Unauthorized" }, { status: 401 });
-    }
-    if (!isAdminOrWorker) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    const body = (await req.json()) as { status?: string | null };
-    const { status } = body;
-
-    if (!status || typeof status !== "string") {
-      return NextResponse.json({ error: "Missing or invalid status" }, { status: 400 });
-    }
-
-    // Validate enum values for bin_request_status
-    // Valid values: requested, approved, in_progress, completed
-    // Note: "denied" is NOT a valid enum value - use DELETE instead
-    const validStatuses = ["requested", "approved", "in_progress", "completed"] as const;
-    const statusLower = status.toLowerCase().trim();
-    if (!validStatuses.includes(statusLower as any)) {
-      return NextResponse.json(
-        { error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` },
-        { status: 400 }
-      );
-    }
-
-    const supabase = getSupabaseServiceClient();
-
-    // Use count: "exact" to verify affected rows
-    const { data, error, count } = await supabase
-      .from("bin_requests")
-      .update({ status: statusLower })
-      .eq("id", params.id)
-      .select("*", { count: "exact" });
-
-    if (error) {
-      console.error("[bin-requests/:id:PATCH] Supabase error updating bin request", error);
-      // Check for enum error (22P02)
-      if (error.code === "22P02" || error.message?.includes("enum")) {
+      if (!user && !hasServiceRole) {
         return NextResponse.json(
-          { error: `Invalid status value. Valid values: requested, approved, in_progress, completed` },
+          { error: authError ?? "Unauthorized" },
+          { status: 401 }
+        );
+      }
+
+      if (!isAdminOrWorker) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+
+      const body = (await req.json()) as { status?: string | null };
+      const status = body?.status?.toLowerCase().trim();
+
+      const validStatuses = ["requested", "approved", "in_progress", "completed"];
+
+      if (!status || !validStatuses.includes(status)) {
+        return NextResponse.json(
+          { error: `Invalid status. Must be one of: ${validStatuses.join(", ")}` },
           { status: 400 }
         );
       }
-      // Check for RLS error (42501) or permission denied
-      if (error.code === "42501" || error.message?.includes("permission denied") || error.message?.includes("RLS")) {
-        console.error("[bin-requests/:id:PATCH] RLS error - SERVICE_ROLE_KEY may not be configured correctly");
-        return NextResponse.json({ error: "Permission denied. Check RLS policies or SERVICE_ROLE_KEY configuration." }, { status: 403 });
+
+      const supabase = getSupabaseServiceClient();
+
+      const { data, error } = await supabase
+        .from("bin_requests")
+        .update({ status })
+        .eq("id", params.id)
+        .select()
+        .maybeSingle(); // ✅ v2 safe
+
+      if (error) {
+        console.error("[bin-requests/:id:PATCH] Supabase error", error);
+        return NextResponse.json(
+          { error: "Failed to update bin request" },
+          { status: 500 }
+        );
       }
-      if (error.code === "PGRST116") {
-        // No rows found
+
+      if (!data) {
         return NextResponse.json({ error: "Not found" }, { status: 404 });
       }
-      return NextResponse.json({ error: "Failed to update bin request" }, { status: 500 });
-    }
 
-    // Check if any rows were updated using count
-    if (count === 0 || !Array.isArray(data) || data.length === 0) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
+      return NextResponse.json(data, { status: 200 });
+    } catch (err) {
+      console.error("[bin-requests/:id:PATCH] Unexpected error", err);
+      return NextResponse.json(
+        { error: "Internal server error" },
+        { status: 500 }
+      );
     }
-
-    return NextResponse.json(data[0], { status: 200 });
-  } catch (err) {
-    console.error("[bin-requests/:id:PATCH] Unexpected error", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
-}
+
 
 // DELETE /api/bin-requests/:id
 // Deletes a bin request (admin/worker or service role)
@@ -123,11 +110,10 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     }
 
     const supabase = getSupabaseServiceClient();
-    const { error, count } = await supabase
+    const { error } = await supabase
       .from("bin_requests")
       .delete()
-      .eq("id", params.id)
-      .select("*", { count: "exact" });
+      .eq("id", params.id);
 
     if (error) {
       console.error("[bin-requests/:id:DELETE] Supabase error deleting bin request", error);
@@ -136,11 +122,11 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
         console.error("[bin-requests/:id:DELETE] RLS error - SERVICE_ROLE_KEY may not be configured correctly");
         return NextResponse.json({ error: "Permission denied. Check RLS policies or SERVICE_ROLE_KEY configuration." }, { status: 403 });
       }
+      // Check for 404 - not found
+      if (error.code === "PGRST116") {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
       return NextResponse.json({ error: "Failed to delete bin request" }, { status: 500 });
-    }
-
-    if (count === 0) {
-      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     return NextResponse.json({ success: true }, { status: 200 });

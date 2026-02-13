@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { supabaseClient } from "@/lib/supabase/client";
+import { supabaseClient } from "../../../lib/supabaseClient";
 
 export default function AuthCallbackPage() {
   return (

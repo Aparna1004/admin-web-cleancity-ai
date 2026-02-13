@@ -42,7 +42,7 @@ export async function GET() {
       name: route.name ?? `Route-${route.id.slice(0, 6)}`,
       zone: route.area_id ?? null,
       stops: route.report_ids?.length ?? 0,
-      worker: route.workers?.name ?? "Unassigned",
+      worker: route.workers?.[0]?.name ?? "Unassigned",
       worker_id: route.worker_id ?? null,
       status: route.status ?? "pending",
     }));

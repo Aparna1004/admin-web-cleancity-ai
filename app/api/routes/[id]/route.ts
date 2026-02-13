@@ -3,11 +3,21 @@ import { getSupabaseServiceClient } from "../../../../lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
 
+// Properly type params
+type RouteParams = {
+  params: {
+    id: string;
+  };
+};
+
 // GET /api/routes/[id]
-// Returns full details for a single route
-export async function GET(req, { params }) {
+export async function GET(
+  req: Request,
+  { params }: RouteParams
+) {
   try {
     const { id } = params;
+
     const supabase = getSupabaseServiceClient();
 
     const { data: route, error } = await supabase
@@ -25,20 +35,10 @@ export async function GET(req, { params }) {
         workers ( id, name )
       `)
       .eq("id", id)
-      .single();
+      .maybeSingle(); // safer than single()
 
     if (error) {
       console.error("[routes/:id] Supabase error", error);
-
-      if (
-        error.code === "PGRST205" ||
-        error.message?.includes("Could not find the table")
-      ) {
-        return NextResponse.json(
-          { error: "Routes table not created yet." },
-          { status: 404 }
-        );
-      }
 
       return NextResponse.json(
         { error: "Failed to fetch route" },
@@ -58,15 +58,11 @@ export async function GET(req, { params }) {
         id: route.id,
         name: route.name ?? `Route-${route.id.slice(0, 6)}`,
         zone: route.area_id,
-
-        // ✅ IMPORTANT FIX
         report_ids: route.report_ids ?? [],
         stop_names: route.stop_names ?? [],
-
         google_maps_url: route.google_maps_url,
         status: route.status ?? "pending",
-
-        worker: route.workers?.name ?? "Unassigned",
+        worker: route.workers?.[0]?.name ?? "Unassigned",
         worker_id: route.worker_id ?? null,
         date: route.date,
       },
@@ -74,6 +70,7 @@ export async function GET(req, { params }) {
     );
   } catch (err) {
     console.error("[routes/:id] Unexpected error", err);
+
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

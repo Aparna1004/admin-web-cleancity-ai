@@ -1,13 +1,18 @@
 import { NextResponse } from "next/server";
-import { getUserFromRequest } from "../../../../../lib/supabaseServer";
+import { getUserFromRequest } from "../../../../lib/supabaseServer";
+
+export const dynamic = "force-dynamic"; // 🔥 REQUIRED
 
 // GET /api/auth/me
-// Returns the authenticated Supabase user (based on Bearer token).
 export async function GET(req: Request) {
   try {
     const { user, error } = await getUserFromRequest(req);
+
     if (!user) {
-      return NextResponse.json({ error: error ?? "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { error: error ?? "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     return NextResponse.json(
@@ -21,8 +26,9 @@ export async function GET(req: Request) {
     );
   } catch (err) {
     console.error("[auth/me:GET] Unexpected error", err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
-
-
