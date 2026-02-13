@@ -25,15 +25,14 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
   const [resolving, setResolving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showAttentionOnly, setShowAttentionOnly] = useState(true);
+  const [showAttentionOnly, setShowAttentionOnly] = useState(false);
 
-  // 🔒 prevents double mutation
   const processedIds = useRef<Set<string>>(new Set());
 
-  /* 🔁 ALWAYS resync from server */
+  /* 🔁 Always sync from server */
   useEffect(() => {
     setRows(reports ?? []);
-    processedIds.current.clear(); // ✅ VERY IMPORTANT
+    processedIds.current.clear();
   }, [reports]);
 
   useEffect(() => {
@@ -51,14 +50,12 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
     setDeletingId(id);
     setError(null);
 
-    // optimistic UI
     setRows((prev) => prev.filter((r) => r.id !== id));
     setSelected(null);
 
     try {
       const res = await fetch(`/api/reports/${id}`, { method: "DELETE" });
 
-      // 404 = already deleted → SUCCESS
       if (res.status !== 200 && res.status !== 404) {
         throw new Error("Delete failed");
       }
@@ -98,6 +95,7 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
       });
 
       if (!res.ok) throw new Error("Update failed");
+
       router.refresh();
     } catch (err) {
       console.error(err);
@@ -155,6 +153,7 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
           </label>
         </div>
 
+        {/* REPORT GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {rows
             .filter((r) => (showAttentionOnly ? r.attention : true))
@@ -164,10 +163,29 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
                   src={r.image_url || "/placeholder.png"}
                   className="h-40 w-full object-cover rounded"
                 />
+
                 <p className="font-semibold mt-2">{r.location}</p>
-                <p className="text-xs text-gray-500">
-                  {r.created_at?.slice(0, 10)} • {r.status}
-                </p>
+
+                <div className="flex justify-between items-center mt-1">
+                  <p className="text-xs text-gray-500">
+                    {r.created_at?.slice(0, 10)} • {r.status}
+                  </p>
+
+                  {/* ✅ SEVERITY BADGE RESTORED */}
+                  <span
+                    className={`text-xs font-semibold px-2 py-1 rounded-full
+                      ${
+                        r.severity?.toLowerCase() === "high"
+                          ? "bg-red-100 text-red-700"
+                          : r.severity?.toLowerCase() === "medium"
+                          ? "bg-yellow-100 text-yellow-700"
+                          : "bg-green-100 text-green-700"
+                      }
+                    `}
+                  >
+                    {r.severity || "Low"}
+                  </span>
+                </div>
 
                 <div className="flex gap-2 mt-2">
                   <button
@@ -176,6 +194,7 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
                   >
                     View
                   </button>
+
                   <button
                     onClick={() => handleDelete(r.id)}
                     disabled={processedIds.current.has(r.id)}
