@@ -1,6 +1,9 @@
 import Link from "next/link";
-import { AppShell } from "../../components/AppShell";
-import { revalidatePath } from "next/cache";
+import { AppShell } from "@/components/AppShell";
+import { BrowserDebugLog } from "@/components/BrowserDebugLog";
+import { CreateRoutesForm } from "./CreateRoutesForm";
+import { dbg, dbgErr } from "@/lib/debugLog";
+import { getServerFetchBaseUrl } from "@/lib/serverFetchBase";
 
 type RouteData = {
   id: string;
@@ -16,62 +19,52 @@ export const dynamic = "force-dynamic";
 
 export default async function RoutesPage() {
   /* ================= FETCH ROUTES FROM NEXT API ================= */
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/routes`,
-    { cache: "no-store" }
-  );
+  const base = getServerFetchBaseUrl();
+  const routesUrl = `${base}/api/routes`;
+  dbg("RoutesPage", "fetch list", { base, routesUrl });
+
+  const res = await fetch(routesUrl, { cache: "no-store" });
 
   let routesData: RouteData[] = [];
   let errorMessage: string | null = null;
 
+  dbg("RoutesPage", "fetch list result", { ok: res.ok, status: res.status });
+
   if (res.ok) {
     routesData = await res.json();
+    dbg("RoutesPage", "routes loaded", { count: Array.isArray(routesData) ? routesData.length : 0 });
   } else {
     const errorData = await res.json().catch(() => ({}));
     errorMessage = errorData.error || "Failed to load routes";
+    dbgErr("RoutesPage", "fetch list failed", { status: res.status, errorData });
   }
 
   /* ================= UI ================= */
   return (
     <AppShell>
+      <BrowserDebugLog
+        tag="RoutesPage"
+        payload={{
+          fetchBase: base,
+          routesUrl,
+          httpStatus: res.status,
+          ok: res.ok,
+          routeCount: Array.isArray(routesData) ? routesData.length : 0,
+          errorMessage,
+        }}
+      />
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-        
         {/* HEADER */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">
-              Routes
-            </h2>
+            <h2 className="text-lg font-semibold text-slate-900">Routes</h2>
             {!errorMessage && (
               <span className="text-sm text-slate-600">
                 {routesData.length} total
               </span>
             )}
           </div>
-
-          {/* ================= CREATE ROUTES BUTTON ================= */}
-          <form
-            action={async () => {
-              "use server";
-
-              await fetch(
-                `${process.env.NEXT_PUBLIC_ROUTING_SERVICE_URL}/routes/create`,
-                {
-                  method: "POST",
-                }
-              );
-
-              // 🔥 refresh this page after generation
-              revalidatePath("/routes");
-            }}
-          >
-            <button
-              type="submit"
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
-            >
-              Create Routes
-            </button>
-          </form>
+          <CreateRoutesForm />
         </div>
 
         {/* ================= CONTENT ================= */}
@@ -80,9 +73,7 @@ export default async function RoutesPage() {
             <p className="text-red-600">{errorMessage}</p>
           </div>
         ) : routesData.length === 0 ? (
-          <div className="px-5 py-8 text-center text-slate-500">
-            No routes found
-          </div>
+          <div className="px-5 py-8 text-center text-slate-500">No routes found</div>
         ) : (
           <table className="w-full text-left">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
