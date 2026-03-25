@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { AppShell } from "../../../components/AppShell";
-import { getServerFetchBaseUrl } from "../../../lib/serverFetchBase";
+import { getSupabaseServiceClient } from "../../../lib/supabaseServer";
 
 type RouteDetails = {
   id: string;
   name: string;
   zone: number | null;
   stop_names?: string[];
-  google_maps_url: string;
+  google_maps_url: string | null;
   status: string;
 };
 
@@ -16,17 +16,34 @@ export default async function RouteDetailPage({
 }: {
   params: { id: string };
 }) {
-  const base = getServerFetchBaseUrl();
-  const routeUrl = base ? `${base}/api/routes/${params.id}` : `/api/routes/${params.id}`;
+  const supabase = getSupabaseServiceClient();
 
-  let res: Response | null = null;
+  let route: RouteDetails | null = null;
   try {
-    res = await fetch(routeUrl, { cache: "no-store" });
-  } catch {
-    res = null;
+    const { data, error } = await supabase
+      .from("routes")
+      .select("id, name, area_id, stop_names, google_maps_url, status")
+      .eq("id", params.id)
+      .maybeSingle();
+
+    if (error) {
+      // Avoid crashing if relations/columns are missing; fall back to not-found UI.
+      console.error("[routes/:id] Supabase error", error);
+    } else if (data) {
+      route = {
+        id: String(data.id),
+        name: data.name ?? `Route-${String(data.id).slice(0, 6)}`,
+        zone: data.area_id ?? null,
+        stop_names: data.stop_names ?? [],
+        google_maps_url: data.google_maps_url ?? null,
+        status: data.status ?? "pending",
+      };
+    }
+  } catch (e) {
+    console.error("[routes/:id] Supabase fetch threw", e);
   }
 
-  if (!res || !res.ok) {
+  if (!route) {
     return (
       <AppShell>
         <div className="rounded-xl border bg-white p-6">
@@ -36,8 +53,6 @@ export default async function RouteDetailPage({
       </AppShell>
     );
   }
-
-  const route: RouteDetails = await res.json();
 
   /* Convert Google Maps URL → Embed URL */
   const focusLocation =
@@ -64,9 +79,10 @@ export default async function RouteDetailPage({
             </div>
 
             <a
-              href={route.google_maps_url}
-              target="_blank"
-              className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm"
+              href={route.google_maps_url ?? "#"}
+              target={route.google_maps_url ? "_blank" : undefined}
+              className={route.google_maps_url ? "bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm" : "bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-sm"}
+              rel="noreferrer"
             >
               Open in Maps
             </a>
