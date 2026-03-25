@@ -11,32 +11,36 @@ export default async function ReportsPage() {
     .select(
       "id, image_url, description, severity, status, created_at, latitude, longitude, attention"
     )
-    .neq("status", "assigned")
-    .neq("status", "cleaned")
-    .neq("status", "resolved")
     .order("created_at", { ascending: false });
 
   if (error) {
     console.error("[ReportsPage] Failed to fetch reports", error);
   }
 
-  const reports: ReportItem[] = (data ?? []).map((r: any) => ({
-    id: r.id,
-    image_url: r.image_url ?? null,
-    description: r.description ?? null,
-    severity:
-      typeof r.severity === "string"
-        ? r.severity.charAt(0).toUpperCase() +
-          r.severity.slice(1).toLowerCase()
-        : "Low",
-    status: r.status ?? "new",
-    created_at: r.created_at ?? null,
-    location: 
-    r.latitude && r.longitude 
-      ? `${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}`
-      : "Unknown location",
-    attention: !!r.attention,
-  }));
+  // Fetch first, then filter in code.
+  // This avoids subtle SQL `NULL` behavior with `neq("status", ...)` filters.
+  const reports: ReportItem[] = (data ?? [])
+    .filter((r: any) => {
+      const st = r.status;
+      return st !== "assigned" && st !== "cleaned" && st !== "resolved";
+    })
+    .map((r: any) => ({
+      id: r.id,
+      image_url: r.image_url ?? null,
+      description: r.description ?? null,
+      severity:
+        typeof r.severity === "string"
+          ? r.severity.charAt(0).toUpperCase() +
+            r.severity.slice(1).toLowerCase()
+          : "Low",
+      status: r.status ?? "new",
+      created_at: r.created_at ?? null,
+      location:
+        r.latitude && r.longitude
+          ? `${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}`
+          : "Unknown location",
+      attention: !!r.attention,
+    }));
 
   // console.log("[ReportsPage] Fetched reports", reports);
   return <ReportsClient key={reports.length} reports={reports} />;
