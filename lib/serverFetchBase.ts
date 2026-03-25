@@ -9,10 +9,23 @@ import { dbg } from "./debugLog";
  * - Override: set NEXT_PUBLIC_API_BASE_URL (e.g. https://your-domain.com) for all environments
  */
 export function getServerFetchBaseUrl(): string {
-  const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "");
+  const fromEnvRaw = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/+$/, "");
+  const fromEnv = fromEnvRaw;
   if (fromEnv) {
-    dbg("serverFetchBase", "using NEXT_PUBLIC_API_BASE_URL", { base: fromEnv });
-    return fromEnv;
+    const looksLikeLocalhost =
+      fromEnv.includes("127.0.0.1") ||
+      fromEnv.includes("localhost") ||
+      fromEnv.includes(":3000");
+
+    // On Vercel, never try to call a local dev server.
+    if (process.env.NODE_ENV !== "development" && looksLikeLocalhost) {
+      dbg("serverFetchBase", "ignoring localhost NEXT_PUBLIC_API_BASE_URL in production", {
+        base: fromEnv,
+      });
+    } else {
+      dbg("serverFetchBase", "using NEXT_PUBLIC_API_BASE_URL", { base: fromEnv });
+      return fromEnv;
+    }
   }
 
   if (process.env.VERCEL_URL) {
@@ -35,10 +48,9 @@ export function getServerFetchBaseUrl(): string {
   }
 
   dbg("serverFetchBase", "fallback localhost (no env, no headers)", {});
-  // Important for Vercel: never try to reach a local dev server from production.
-  // If headers/env are missing, let callers fallback to relative URLs.
-  if (process.env.NODE_ENV === "development") {
-    return "http://127.0.0.1:3000";
-  }
+  // If we still can't determine a host:
+  // - dev: fall back to localhost
+  // - prod: return empty so callers can choose safe fallback (or show an error)
+  if (process.env.NODE_ENV === "development") return "http://127.0.0.1:3000";
   return "";
 }
