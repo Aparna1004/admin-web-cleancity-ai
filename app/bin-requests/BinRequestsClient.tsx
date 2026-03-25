@@ -22,6 +22,8 @@ export function BinRequestsClient({ binRequests = [] as BinRequestItem[] }: { bi
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [processedIds, setProcessedIds] = useState<Set<string>>(new Set());
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Sync local state with props when binRequests change (after router.refresh())
   useEffect(() => {
@@ -101,20 +103,14 @@ export function BinRequestsClient({ binRequests = [] as BinRequestItem[] }: { bi
     }
   };
 
-  const handleDelete = async (id: string) => {
-    // Prevent duplicate actions - check before confirm dialog
+  const performDelete = async (id: string) => {
+    // Prevent duplicate actions
     if (processedIds.has(id) || updatingId === id) {
       return;
     }
 
-    if (!confirm("Are you sure you want to deny and delete this bin request? This action cannot be undone.")) {
-      return;
-    }
-
-    // Double-check after confirm (user might have clicked multiple times)
-    if (processedIds.has(id) || updatingId === id) {
-      return;
-    }
+    setDeleteConfirmOpen(false);
+    setDeleteConfirmId(null);
 
     setUpdatingId(id);
     setError(null);
@@ -184,6 +180,12 @@ export function BinRequestsClient({ binRequests = [] as BinRequestItem[] }: { bi
     } finally {
       setUpdatingId(null);
     }
+  };
+
+  const handleDelete = (id: string) => {
+    if (processedIds.has(id) || updatingId === id) return;
+    setDeleteConfirmId(id);
+    setDeleteConfirmOpen(true);
   };
 
   const getStatusColor = (status: string) => {
@@ -338,6 +340,51 @@ export function BinRequestsClient({ binRequests = [] as BinRequestItem[] }: { bi
           </div>
         </div>
       </div>
+
+      {deleteConfirmOpen && deleteConfirmId ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => {
+            setDeleteConfirmOpen(false);
+            setDeleteConfirmId(null);
+          }}
+        >
+          <div
+            className="bg-white rounded-xl shadow-lg p-5 w-full max-w-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-sm text-slate-600">
+              Deny and delete this bin request?
+            </div>
+            <div className="mt-1 text-xs text-slate-500">
+              This action cannot be undone.
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="border rounded px-3 py-1.5 text-sm"
+                onClick={() => {
+                  setDeleteConfirmOpen(false);
+                  setDeleteConfirmId(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="bg-rose-600 text-white rounded px-3 py-1.5 text-sm"
+                disabled={updatingId === deleteConfirmId}
+                onClick={() => performDelete(deleteConfirmId)}
+              >
+                {updatingId === deleteConfirmId ? "Deleting..." : "Deny"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </AppShell>
   );
 }

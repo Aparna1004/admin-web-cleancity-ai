@@ -1,9 +1,15 @@
 import { ReportsClient, type ReportItem } from "./ReportsClient";
 import { getSupabaseServiceClient } from "../../lib/supabaseServer";
+import { unstable_noStore as noStore } from "next/cache";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function ReportsPage() {
+  // Prevent Next.js from caching this server component between navigations.
+  // Without this, deleting reports in Supabase may not reflect immediately on the UI.
+  noStore();
+
   const supabase = getSupabaseServiceClient();
 
   const { data, error } = await supabase

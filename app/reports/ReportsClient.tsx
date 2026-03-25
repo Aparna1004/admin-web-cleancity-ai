@@ -32,8 +32,27 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAttentionOnly, setShowAttentionOnly] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimeoutRef = useRef<number | null>(null);
+
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const processedIds = useRef<Set<string>>(new Set());
+
+  const closeToast = () => {
+    setToastMessage(null);
+    if (toastTimeoutRef.current) {
+      window.clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = null;
+    }
+  };
+
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    if (toastTimeoutRef.current) window.clearTimeout(toastTimeoutRef.current);
+    toastTimeoutRef.current = window.setTimeout(() => setToastMessage(null), 2500);
+  };
 
   useEffect(() => {
     setRows(reports ?? []);
@@ -47,13 +66,14 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
   }, [selected]);
 
   /* ================= DELETE ================= */
-  const handleDelete = async (id: string) => {
+  const performDelete = async (id: string) => {
     if (processedIds.current.has(id) || deletingId === id) return;
-    if (!window.confirm("Delete this report?")) return;
 
     processedIds.current.add(id);
     setDeletingId(id);
     setError(null);
+    setDeleteConfirmOpen(false);
+    setDeleteConfirmId(null);
 
     setRows((prev) => prev.filter((r) => r.id !== id));
     setSelected(null);
@@ -75,6 +95,12 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
     } finally {
       setDeletingId(null);
     }
+  };
+
+  const handleDelete = (id: string) => {
+    if (processedIds.current.has(id) || deletingId === id) return;
+    setDeleteConfirmId(id);
+    setDeleteConfirmOpen(true);
   };
 
   /* ================= SEVERITY ================= */
@@ -105,6 +131,9 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
 
       if (!res.ok) throw new Error("Update failed");
 
+      // Close the change menu immediately so the admin can continue working.
+      setSelected(null);
+      showToast(`Severity changed to ${uiSeverity}`);
       router.refresh();
     } catch (err) {
       console.error(err);
@@ -250,6 +279,68 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
           </div>
         </div>
       )}
+
+      {deleteConfirmOpen && deleteConfirmId ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => {
+            setDeleteConfirmOpen(false);
+            setDeleteConfirmId(null);
+          }}
+        >
+          <div
+            className="bg-white rounded-xl shadow-lg p-5 w-full max-w-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-sm text-slate-600">Delete this report?</div>
+            <div className="mt-1 text-xs text-slate-500">
+              This action cannot be undone.
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                className="border rounded px-3 py-1.5 text-sm"
+                onClick={() => {
+                  setDeleteConfirmOpen(false);
+                  setDeleteConfirmId(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="bg-red-600 text-white rounded px-3 py-1.5 text-sm"
+                disabled={deletingId === deleteConfirmId}
+                onClick={() => performDelete(deleteConfirmId)}
+              >
+                {deletingId === deleteConfirmId ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {toastMessage ? (
+        <div className="fixed bottom-5 right-5 z-[60]">
+          <div
+            className="bg-slate-900 text-white rounded-xl shadow-lg px-4 py-3 flex items-start gap-3"
+            role="status"
+          >
+            <div className="text-sm leading-5">{toastMessage}</div>
+            <button
+              type="button"
+              className="ml-2 text-slate-300 hover:text-white"
+              onClick={closeToast}
+              aria-label="Close notification"
+            >
+              x
+            </button>
+          </div>
+        </div>
+      ) : null}
     </AppShell>
   );
 }
