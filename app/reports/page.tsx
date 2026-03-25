@@ -13,6 +13,7 @@ export default async function ReportsPage() {
     )
     .neq("status", "assigned")
     .neq("status", "cleaned")
+    .neq("status", "resolved")
     .order("created_at", { ascending: false });
 
   if (error) {

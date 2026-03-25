@@ -150,6 +150,10 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
     }
   };
 
+  const visibleRows = rows.filter((r) =>
+    showAttentionOnly ? !!r.attention : true
+  );
+
   return (
     <AppShell>
       <div className="space-y-3">
@@ -165,10 +169,13 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
           </label>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {rows
-            .filter((r) => (showAttentionOnly ? r.attention : true))
-            .map((r) => (
+        {visibleRows.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
+            No reports found{showAttentionOnly ? " for attention." : "."}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {visibleRows.map((r) => (
               <div key={r.id} className="border rounded-lg p-3">
                 <img
                   src={r.image_url || "/placeholder.png"}
@@ -204,7 +211,8 @@ export function ReportsClient({ reports = [] }: { reports?: ReportItem[] }) {
                 </div>
               </div>
             ))}
-        </div>
+          </div>
+        )}
 
         {error && <p className="text-red-600 text-sm">{error}</p>}
       </div>
