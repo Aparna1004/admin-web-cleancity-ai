@@ -22,6 +22,10 @@ export default async function ReportsPage() {
   const reports: ReportItem[] = (data ?? [])
     .filter((r: any) => {
       const st = r.status;
+      // If status is NULL, treat the row as not an "active/open report".
+      // This matches the previous Supabase `neq("status", ...)` behavior and
+      // avoids showing dangling rows with NULL status.
+      if (typeof st !== "string" || st.trim().length === 0) return false;
       return st !== "assigned" && st !== "cleaned" && st !== "resolved";
     })
     .map((r: any) => ({
