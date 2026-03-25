@@ -13,6 +13,8 @@ export default async function ReportsPage() {
     )
     .order("created_at", { ascending: false });
 
+  console.log("[ReportsPage] Fetched reports", data);
+
   if (error) {
     console.error("[ReportsPage] Failed to fetch reports", error);
   }
