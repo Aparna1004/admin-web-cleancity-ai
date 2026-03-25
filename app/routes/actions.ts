@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
-import { dbg, dbgErr } from "@/lib/debugLog";
-import { persistRoutesFromMlPayload } from "@/lib/persistMlRoutes";
+import { dbg, dbgErr } from "../../lib/debugLog";
+import { persistRoutesFromMlPayload } from "../../lib/persistMlRoutes";
 
 import type { CreateRoutesState } from "./createRoutesState";
 

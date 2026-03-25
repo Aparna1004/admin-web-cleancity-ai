@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { AppShell } from "@/components/AppShell";
-import { BrowserDebugLog } from "@/components/BrowserDebugLog";
+import { AppShell } from "../../components/AppShell";
+import { BrowserDebugLog } from "../../components/BrowserDebugLog";
 import { CreateRoutesForm } from "./CreateRoutesForm";
-import { dbg, dbgErr } from "@/lib/debugLog";
-import { getServerFetchBaseUrl } from "@/lib/serverFetchBase";
+import { dbg, dbgErr } from "../../lib/debugLog";
+import { getServerFetchBaseUrl } from "../../lib/serverFetchBase";
 import { CompleteRouteButton } from "./CompleteRouteButton";
 
 type RouteData = {

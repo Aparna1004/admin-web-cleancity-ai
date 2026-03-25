@@ -1,4 +1,4 @@
-import { getSupabaseServiceClient } from "@/lib/supabaseServer";
+import { getSupabaseServiceClient } from "./supabaseServer";
 
 type MlRouteRow = {
   id?: string;
