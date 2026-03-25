@@ -12,17 +12,24 @@ export default async function ReportsPage() {
 
   const supabase = getSupabaseServiceClient();
 
-  const { data, error } = await supabase
-    .from("reports")
-    .select(
-      "id, image_url, description, severity, status, created_at, latitude, longitude, attention"
-    )
-    .order("created_at", { ascending: false });
+  let data: any[] = [];
+  try {
+    const { data: fetched, error } = await supabase
+      .from("reports")
+      .select(
+        "id, image_url, description, severity, status, created_at, latitude, longitude, address, attention"
+      )
+      .order("created_at", { ascending: false });
 
-  console.log("[ReportsPage] Fetched reports", data);
-
-  if (error) {
-    console.error("[ReportsPage] Failed to fetch reports", error);
+    data = (fetched ?? []) as any[];
+    if (error) {
+      console.error("[ReportsPage] Failed to fetch reports", error);
+    } else {
+      console.log("[ReportsPage] Fetched reports", { count: data.length });
+    }
+  } catch (e) {
+    // Prevent Server Components from crashing at render-time in production.
+    console.error("[ReportsPage] Supabase fetch threw", e);
   }
 
   // Fetch first, then filter in code.
@@ -37,7 +44,7 @@ export default async function ReportsPage() {
       return st !== "assigned" && st !== "cleaned" && st !== "resolved";
     })
     .map((r: any) => ({
-      id: r.id,
+      id: String(r.id),
       image_url: r.image_url ?? null,
       description: r.description ?? null,
       severity:
@@ -45,12 +52,19 @@ export default async function ReportsPage() {
           ? r.severity.charAt(0).toUpperCase() +
             r.severity.slice(1).toLowerCase()
           : "Low",
-      status: r.status ?? "new",
+      status: (r.status as string | null) ?? "new",
       created_at: r.created_at ?? null,
-      location:
-        r.latitude && r.longitude
-          ? `${r.latitude.toFixed(4)}, ${r.longitude.toFixed(4)}`
-          : "Unknown location",
+      location: (() => {
+        const addr =
+          typeof r.address === "string" ? r.address.trim() : "";
+        if (addr) return addr;
+        if (r.latitude != null && r.longitude != null) {
+          return `${Number(r.latitude).toFixed(4)}, ${Number(r.longitude).toFixed(
+            4
+          )}`;
+        }
+        return "Unknown location";
+      })(),
       attention: !!r.attention,
     }));
 
