@@ -22,24 +22,42 @@ export const dynamic = "force-dynamic";
 export default async function RoutesPage() {
   /* ================= FETCH ROUTES FROM NEXT API ================= */
   const base = getServerFetchBaseUrl();
-  const routesUrl = `${base}/api/routes`;
+  // If base can't be determined (e.g. Vercel runtime without env/headers),
+  // use relative URL so Next resolves the internal route correctly.
+  const routesUrl = base ? `${base}/api/routes` : `/api/routes`;
   dbg("RoutesPage", "fetch list", { base, routesUrl });
 
-  const res = await fetch(routesUrl, { cache: "no-store" });
-
+  let res: Response | null = null;
   let routesData: RouteData[] = [];
   let errorMessage: string | null = null;
 
-  dbg("RoutesPage", "fetch list result", { ok: res.ok, status: res.status });
-
+  try {
+    res = await fetch(routesUrl, { cache: "no-store" });
+  } catch (e) {
+    dbgErr("RoutesPage", "fetch list threw", e);
+    errorMessage = "Failed to load routes (network error).";
+  }
+  if (!res) {
+    // Skip parsing.
+  } else
   if (res.ok) {
     routesData = await res.json();
-    dbg("RoutesPage", "routes loaded", { count: Array.isArray(routesData) ? routesData.length : 0 });
+    dbg("RoutesPage", "routes loaded", {
+      count: Array.isArray(routesData) ? routesData.length : 0,
+    });
   } else {
     const errorData = await res.json().catch(() => ({}));
     errorMessage = errorData.error || "Failed to load routes";
-    dbgErr("RoutesPage", "fetch list failed", { status: res.status, errorData });
+    dbgErr("RoutesPage", "fetch list failed", {
+      status: res.status,
+      errorData,
+    });
   }
+
+  dbg("RoutesPage", "fetch list result", {
+    ok: !!res?.ok,
+    status: res?.status ?? null,
+  });
 
   /* ================= UI ================= */
   return (
@@ -49,8 +67,8 @@ export default async function RoutesPage() {
         payload={{
           fetchBase: base,
           routesUrl,
-          httpStatus: res.status,
-          ok: res.ok,
+          httpStatus: res?.status ?? null,
+          ok: res?.ok ?? false,
           routeCount: Array.isArray(routesData) ? routesData.length : 0,
           errorMessage,
         }}

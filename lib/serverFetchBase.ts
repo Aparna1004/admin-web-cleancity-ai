@@ -35,5 +35,10 @@ export function getServerFetchBaseUrl(): string {
   }
 
   dbg("serverFetchBase", "fallback localhost (no env, no headers)", {});
-  return "http://127.0.0.1:3000";
+  // Important for Vercel: never try to reach a local dev server from production.
+  // If headers/env are missing, let callers fallback to relative URLs.
+  if (process.env.NODE_ENV === "development") {
+    return "http://127.0.0.1:3000";
+  }
+  return "";
 }

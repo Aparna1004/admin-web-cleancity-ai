@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AppShell } from "../../../components/AppShell";
+import { getServerFetchBaseUrl } from "../../../lib/serverFetchBase";
 
 type RouteDetails = {
   id: string;
@@ -15,12 +16,17 @@ export default async function RouteDetailPage({
 }: {
   params: { id: string };
 }) {
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/routes/${params.id}`,
-    { cache: "no-store" }
-  );
+  const base = getServerFetchBaseUrl();
+  const routeUrl = base ? `${base}/api/routes/${params.id}` : `/api/routes/${params.id}`;
 
-  if (!res.ok) {
+  let res: Response | null = null;
+  try {
+    res = await fetch(routeUrl, { cache: "no-store" });
+  } catch {
+    res = null;
+  }
+
+  if (!res || !res.ok) {
     return (
       <AppShell>
         <div className="rounded-xl border bg-white p-6">
