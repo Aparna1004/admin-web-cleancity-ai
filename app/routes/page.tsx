@@ -3,7 +3,7 @@ import { AppShell } from "../../components/AppShell";
 import { BrowserDebugLog } from "../../components/BrowserDebugLog";
 import { CreateRoutesForm } from "./CreateRoutesForm";
 import { dbg, dbgErr } from "../../lib/debugLog";
-import { getServerFetchBaseUrl } from "../../lib/serverFetchBase";
+import { getSupabaseServiceClient } from "../../lib/supabaseServer";
 import { CompleteRouteButton } from "./CompleteRouteButton";
 
 type RouteData = {
@@ -20,44 +20,40 @@ type RouteData = {
 export const dynamic = "force-dynamic";
 
 export default async function RoutesPage() {
-  /* ================= FETCH ROUTES FROM NEXT API ================= */
-  const base = getServerFetchBaseUrl();
-  // If base can't be determined (e.g. Vercel runtime without env/headers),
-  // use relative URL so Next resolves the internal route correctly.
-  const routesUrl = base ? `${base}/api/routes` : `/api/routes`;
-  dbg("RoutesPage", "fetch list", { base, routesUrl });
+  /* ================= FETCH ROUTES DIRECTLY FROM SUPABASE ================= */
+  const supabase = getSupabaseServiceClient();
 
-  let res: Response | null = null;
   let routesData: RouteData[] = [];
   let errorMessage: string | null = null;
 
   try {
-    res = await fetch(routesUrl, { cache: "no-store" });
-  } catch (e) {
-    dbgErr("RoutesPage", "fetch list threw", e);
-    errorMessage = "Failed to load routes (network error).";
-  }
-  if (!res) {
-    // Skip parsing.
-  } else
-  if (res.ok) {
-    routesData = await res.json();
-    dbg("RoutesPage", "routes loaded", {
-      count: Array.isArray(routesData) ? routesData.length : 0,
-    });
-  } else {
-    const errorData = await res.json().catch(() => ({}));
-    errorMessage = errorData.error || "Failed to load routes";
-    dbgErr("RoutesPage", "fetch list failed", {
-      status: res.status,
-      errorData,
-    });
-  }
+    const { data, error } = await supabase
+      .from("routes")
+      .select(
+        "id, name, area_id, report_ids, google_maps_url, worker_id, status, date, created_at"
+      )
+      .neq("status", "completed")
+      .order("created_at", { ascending: false });
 
-  dbg("RoutesPage", "fetch list result", {
-    ok: !!res?.ok,
-    status: res?.status ?? null,
-  });
+    if (error) {
+      errorMessage = error.message ?? "Failed to load routes";
+      dbgErr("RoutesPage", "supabase routes error", error);
+    } else {
+      routesData = (data ?? []).map((r: any) => ({
+        id: String(r.id),
+        area_id: r.area_id ?? null,
+        report_ids: r.report_ids ?? [],
+        google_maps_url: r.google_maps_url ?? null,
+        total_severity: 0,
+        status: r.status ?? "pending",
+        worker_id: r.worker_id ?? null,
+      }));
+      dbg("RoutesPage", "routes loaded", { count: routesData.length });
+    }
+  } catch (e) {
+    dbgErr("RoutesPage", "supabase routes fetch threw", e);
+    errorMessage = "Failed to load routes.";
+  }
 
   /* ================= UI ================= */
   return (
@@ -65,11 +61,8 @@ export default async function RoutesPage() {
       <BrowserDebugLog
         tag="RoutesPage"
         payload={{
-          fetchBase: base,
-          routesUrl,
-          httpStatus: res?.status ?? null,
-          ok: res?.ok ?? false,
-          routeCount: Array.isArray(routesData) ? routesData.length : 0,
+          supabase: true,
+          routeCount: routesData.length,
           errorMessage,
         }}
       />
