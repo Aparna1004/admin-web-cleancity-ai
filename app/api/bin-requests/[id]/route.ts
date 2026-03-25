@@ -49,7 +49,8 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
       const body = (await req.json()) as { status?: string | null };
       const status = body?.status?.toLowerCase().trim();
 
-      const validStatuses = ["requested", "approved", "in_progress", "completed"];
+      // DB uses `installed` (enum) but UI/clients may send `completed`.
+      const validStatuses = ["requested", "approved", "in_progress", "installed", "completed"];
 
       if (!status || !validStatuses.includes(status)) {
         return NextResponse.json(
@@ -58,11 +59,15 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
         );
       }
 
+      // Backward/forward compatible mapping:
+      // - `completed` (client) -> `installed` (DB enum)
+      const dbStatus = status === "completed" ? "installed" : status;
+
       const supabase = getSupabaseServiceClient();
 
       const { data, error } = await supabase
         .from("bin_requests")
-        .update({ status })
+        .update({ status: dbStatus })
         .eq("id", params.id)
         .select()
         .maybeSingle(); // ✅ v2 safe
