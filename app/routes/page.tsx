@@ -4,6 +4,7 @@ import { BrowserDebugLog } from "@/components/BrowserDebugLog";
 import { CreateRoutesForm } from "./CreateRoutesForm";
 import { dbg, dbgErr } from "@/lib/debugLog";
 import { getServerFetchBaseUrl } from "@/lib/serverFetchBase";
+import { CompleteRouteButton } from "./CompleteRouteButton";
 
 type RouteData = {
   id: string;
@@ -73,7 +74,11 @@ export default async function RoutesPage() {
             <p className="text-red-600">{errorMessage}</p>
           </div>
         ) : routesData.length === 0 ? (
-          <div className="px-5 py-8 text-center text-slate-500">No routes found</div>
+          <div className="px-5 py-8 text-center text-slate-500">
+            No active routes right now. Click{" "}
+            <span className="font-semibold text-slate-700">Create Routes</span> to
+            generate new ones.
+          </div>
         ) : (
           <table className="w-full text-left">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
@@ -129,6 +134,8 @@ export default async function RoutesPage() {
                     >
                       View
                     </Link>
+
+                    <CompleteRouteButton routeId={route.id} status={route.status} />
                   </td>
                 </tr>
               ))}

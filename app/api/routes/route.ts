@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
+import { dbg, dbgErr } from "../../../lib/debugLog";
 import { getSupabaseServiceClient } from "../../../lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    dbg("api/routes", "GET start", { url: req.url });
     const supabase = getSupabaseServiceClient();
 
-    const { data: routes, error } = await supabase
+    const url = new URL(req.url);
+    const forAssignment =
+      url.searchParams.get("for_assignment") === "1" ||
+      url.searchParams.get("for_assignment") === "true";
+
+    let query = supabase
       .from("routes")
       .select(`
         id,
@@ -21,6 +28,18 @@ export async function GET() {
         workers ( id, name )
       `)
       .order("created_at", { ascending: false });
+
+    // Hide completed routes from both the main list and the assignment dropdown.
+    // (Workers should only deal with open/in-progress routes.)
+    query = query.neq("status", "completed");
+
+    if (forAssignment) {
+      // Only show routes that are not yet assigned to a worker.
+      // WorkersClient uses this endpoint to populate the "Assign route" dropdown.
+      query = query.is("worker_id", null);
+    }
+
+    const { data: routes, error } = await query;
 
     if (error) {
       console.error("[routes:GET] Supabase error", error);
