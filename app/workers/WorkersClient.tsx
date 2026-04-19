@@ -9,6 +9,7 @@ export type WorkerRow = {
   active: boolean | null;
   zone?: string | null;
   profiles?: { full_name: string | null } | null;
+  assignedRoute?: { id: string; name: string; status?: string | null } | null;
 };
 
 export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: WorkerRow[] }) {
@@ -22,18 +23,52 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
 
   // Fetch available routes when modal opens
   const [availableRoutes, setAvailableRoutes] = useState<Array<{ id: string; name: string }>>([]);
+  const [routesLoading, setRoutesLoading] = useState(false);
 
   useEffect(() => {
-    if (selected) {
-      fetch("/api/routes?status=pending")
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data)) {
-            setAvailableRoutes(data.map((r: any) => ({ id: r.id, name: r.name || r.id })));
-          }
-        })
-        .catch(() => setAvailableRoutes([]));
+    if (!selected) {
+      setAvailableRoutes([]);
+      setRouteId("");
+      return;
     }
+
+    setRoutesLoading(true);
+    setRouteId("");
+    setError(null);
+
+    // Only routes with no worker; no-store avoids stale lists after assignments.
+    fetch(`/api/routes?for_assignment=true&t=${Date.now()}`, {
+      cache: "no-store",
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!Array.isArray(data)) {
+          setAvailableRoutes([]);
+          return;
+        }
+        const stAssigned = (s: unknown) =>
+          ["assigned", "cleaned", "completed"].includes(
+            String(s ?? "").trim().toLowerCase()
+          );
+        const open = data.filter((r: any) => {
+          if (!r || typeof r.id !== "string") return false;
+          const wid = r.worker_id;
+          const noWorker =
+            wid === null ||
+            wid === undefined ||
+            (typeof wid === "string" && wid.trim() === "");
+          if (!noWorker) return false;
+          if (stAssigned(r.status)) return false;
+          return true;
+        });
+        const byId = new Map<string, { id: string; name: string }>();
+        for (const r of open) {
+          byId.set(r.id, { id: r.id, name: r.name || r.id });
+        }
+        setAvailableRoutes([...byId.values()]);
+      })
+      .catch(() => setAvailableRoutes([]))
+      .finally(() => setRoutesLoading(false));
   }, [selected]);
 
   const handleAssign = async () => {
@@ -72,7 +107,7 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 lg:grid-cols-3">
         {safeWorkers.map((worker) => (
           <WorkerCard
             key={worker.id}
@@ -82,6 +117,7 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
               zone: worker.zone || "Unknown",
               totalCleanups: 0,
               status: worker.active ? "Online" : "Offline",
+              assignedRoute: worker.assignedRoute ?? null,
             }}
             onAssign={() => setSelected(worker)}
           />
@@ -100,15 +136,23 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
               <select
                 value={routeId}
                 onChange={(e) => setRouteId(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-indigo-500 focus:outline-none"
+                disabled={routesLoading}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-indigo-500 focus:outline-none disabled:opacity-60"
               >
-                <option value="">Select a route</option>
+                <option value="">
+                  {routesLoading ? "Loading routes…" : "Select a route"}
+                </option>
                 {availableRoutes.map((route) => (
                   <option key={route.id} value={route.id}>
                     {route.name}
                   </option>
                 ))}
               </select>
+              {!routesLoading && availableRoutes.length === 0 && (
+                <p className="text-xs text-slate-500">
+                  No unassigned routes right now. Create routes or wait until one is unassigned.
+                </p>
+              )}
               <label className="text-sm font-semibold text-slate-700">Notes</label>
               <textarea
                 value={notes}

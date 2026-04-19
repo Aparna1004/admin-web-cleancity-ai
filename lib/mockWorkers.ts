@@ -1,11 +1,19 @@
 export type WorkerStatus = "Online" | "Offline";
 
+export type WorkerAssignedRoute = {
+  id: string;
+  name: string;
+  status?: string | null;
+};
+
 export type Worker = {
   id: string;
   name: string;
   zone: string;
   totalCleanups: number;
   status: WorkerStatus;
+  /** Current route for this worker (from Supabase), if any */
+  assignedRoute?: WorkerAssignedRoute | null;
 };
 
 export const workers: Worker[] = [

@@ -68,7 +68,7 @@ export async function POST(
     /* ---------- FIND ROUTE ---------- */
     const { data: route, error: routeError } = await supabase
       .from("routes")
-      .select("id, area_id, status")
+      .select("id, area_id, status, worker_id")
       .eq("id", route_id)
       .single();
 
@@ -80,6 +80,19 @@ export async function POST(
     }
 
     /* ---------- OPTIONAL SAFETY CHECK ---------- */
+    if (route.worker_id != null && String(route.worker_id).length > 0) {
+      if (String(route.worker_id) === String(worker.user_id)) {
+        return NextResponse.json(
+          { error: "This route is already assigned to this worker" },
+          { status: 409 }
+        );
+      }
+      return NextResponse.json(
+        { error: "Route is already assigned to another worker" },
+        { status: 409 }
+      );
+    }
+
     if (route.status === "assigned") {
       return NextResponse.json(
         { error: "Route already assigned" },
