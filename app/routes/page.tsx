@@ -17,7 +17,17 @@ type RouteData = {
   worker_id?: string | null;
 };
 
+/** Hide finished routes even if the DB filter misses (enum casing / legacy values). */
+function isActiveRouteRow(status: unknown): boolean {
+  const s = String(status ?? "")
+    .trim()
+    .toLowerCase();
+  if (!s) return true;
+  return !["completed", "cleaned", "done", "cancelled", "archived"].includes(s);
+}
+
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function RoutesPage() {
   /* ================= FETCH ROUTES DIRECTLY FROM SUPABASE ================= */
@@ -39,15 +49,17 @@ export default async function RoutesPage() {
       errorMessage = error.message ?? "Failed to load routes";
       dbgErr("RoutesPage", "supabase routes error", error);
     } else {
-      routesData = (data ?? []).map((r: any) => ({
-        id: String(r.id),
-        area_id: r.area_id ?? null,
-        report_ids: r.report_ids ?? [],
-        google_maps_url: r.google_maps_url ?? null,
-        total_severity: 0,
-        status: r.status ?? "pending",
-        worker_id: r.worker_id ?? null,
-      }));
+      routesData = (data ?? [])
+        .filter((r: any) => isActiveRouteRow(r.status))
+        .map((r: any) => ({
+          id: String(r.id),
+          area_id: r.area_id ?? null,
+          report_ids: r.report_ids ?? [],
+          google_maps_url: r.google_maps_url ?? null,
+          total_severity: 0,
+          status: r.status ?? "pending",
+          worker_id: r.worker_id ?? null,
+        }));
       dbg("RoutesPage", "routes loaded", { count: routesData.length });
     }
   } catch (e) {

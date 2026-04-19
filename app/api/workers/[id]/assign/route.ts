@@ -134,7 +134,8 @@ export async function POST(
     const routeStatus = String(route.status ?? "")
       .trim()
       .toLowerCase();
-    if (["assigned", "cleaned", "completed"].includes(routeStatus)) {
+    // Allow status "assigned" when worker_id is still empty (fix inconsistent rows).
+    if (["cleaned", "completed"].includes(routeStatus)) {
       return NextResponse.json(
         { error: "This route is not available for assignment" },
         { status: 409 }

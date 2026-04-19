@@ -92,6 +92,27 @@ export default async function WorkersPage() {
     }
   }
 
+  const cleanupByUserId = new Map<string, number>();
+  const { data: completedRouteRows, error: completedErr } = await supabase
+    .from("routes")
+    .select("worker_id, status")
+    .not("worker_id", "is", null);
+
+  if (completedErr) {
+    console.error("[WorkersPage] Failed to fetch routes for cleanup counts", completedErr);
+  } else {
+    for (const r of completedRouteRows ?? []) {
+      const st = String(r.status ?? "").trim().toLowerCase();
+      if (st !== "completed") continue;
+      const widRaw = r.worker_id;
+      if (widRaw === null || widRaw === undefined) continue;
+      const userIdKey = routeWorkerIdToUserId(widRaw);
+      if (!userIdKey) continue;
+      const mapKey = normId(userIdKey);
+      cleanupByUserId.set(mapKey, (cleanupByUserId.get(mapKey) ?? 0) + 1);
+    }
+  }
+
   const workers: WorkerRow[] = rows.map((w: any) => {
     const uid =
       typeof w.user_id === "string" && w.user_id.trim().length > 0
@@ -103,6 +124,7 @@ export default async function WorkersPage() {
       zone: w.zone ?? "Unknown",
       profiles: { full_name: w.name ?? "Worker" },
       assignedRoute: uid ? assignedByUserId.get(normId(uid)) ?? null : null,
+      totalCleanups: uid ? cleanupByUserId.get(normId(uid)) ?? 0 : 0,
     };
   });
 

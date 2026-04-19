@@ -4,21 +4,49 @@ import { getSupabaseServiceClient } from "../../../lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
 
-function reportIdsFingerprint(reportIds: unknown): string {
-  if (!Array.isArray(reportIds) || reportIds.length === 0) return "";
-  return [...reportIds].map(String).filter(Boolean).sort().join("|");
+function normalizeReportIds(reportIds: unknown): string[] {
+  if (reportIds == null) return [];
+  if (Array.isArray(reportIds)) {
+    return reportIds.map(String).filter(Boolean);
+  }
+  if (typeof reportIds === "string") {
+    const s = reportIds.trim();
+    if (!s) return [];
+    try {
+      const parsed = JSON.parse(s) as unknown;
+      return Array.isArray(parsed)
+        ? parsed.map(String).filter(Boolean)
+        : [];
+    } catch {
+      return [];
+    }
+  }
+  // PostgREST sometimes returns JSON/array columns as { "0": id, "1": id }.
+  if (typeof reportIds === "object" && reportIds !== null) {
+    const o = reportIds as Record<string, unknown>;
+    const keys = Object.keys(o)
+      .filter((k) => /^\d+$/.test(k))
+      .sort((a, b) => Number(a) - Number(b));
+    if (keys.length > 0) {
+      return keys.map((k) => String(o[k] ?? "")).filter(Boolean);
+    }
+  }
+  return [];
 }
 
 function hasAssignedWorkerId(workerId: unknown): boolean {
   if (workerId === null || workerId === undefined) return false;
   if (typeof workerId === "object") {
-    // Rare JSON shapes from views / legacy data
+    if (Array.isArray(workerId)) {
+      return workerId.length > 0;
+    }
     const v = workerId as { toString?: () => string };
     if (typeof v?.toString === "function") {
       const s = String(v.toString()).trim();
       return s.length > 0 && s.toLowerCase() !== "null";
     }
-    return true;
+    // Unknown object shape — do not treat as assigned (avoids false positives).
+    return false;
   }
   const s = String(workerId).trim();
   if (s === "" || s.toLowerCase() === "null" || s === "undefined") return false;
@@ -32,8 +60,16 @@ function isRouteUnassignedForPicker(r: {
 }): boolean {
   if (hasAssignedWorkerId(r.worker_id)) return false;
   const st = String(r.status ?? "").trim().toLowerCase();
-  if (["assigned", "cleaned", "completed"].includes(st)) return false;
+  // Do not exclude "assigned" here: some rows are status assigned with NULL worker_id
+  // (bad data / partial writes) and must still be assignable.
+  if (["cleaned", "completed"].includes(st)) return false;
   return true;
+}
+
+/** Terminal / finished — hide from assignment picker (raw DB row before ?? "pending"). */
+function isTerminalRouteStatusDb(status: unknown): boolean {
+  const st = String(status ?? "").trim().toLowerCase();
+  return ["cleaned", "completed", "done", "cancelled", "archived"].includes(st);
 }
 
 export async function GET(req: Request) {
@@ -71,20 +107,29 @@ export async function GET(req: Request) {
       workers ( id, name )
     `;
 
-    let query = supabase
-      .from("routes")
-      .select(forAssignment ? selectForAssignment : selectFull)
-      .order("created_at", { ascending: false });
+    let routes: unknown[] | null = null;
+    let error: { message?: string; code?: string } | null = null;
 
-    // Hide completed routes from both the main list and the assignment dropdown.
-    // (Workers should only deal with open/in-progress routes.)
-    query = query.neq("status", "completed");
-
-    // For assignment: do NOT use .is(worker_id, null) only — duplicate rows often share
-    // report_ids (one ghost row still null, the real row assigned). We fetch non-completed
-    // routes and filter in JS, excluding stop-sets already tied to an assigned route.
-
-    const { data: routes, error } = await query;
+    if (forAssignment) {
+      // Plain select — no PostgREST .neq on status. NULL/mismatched enum + .neq can drop
+      // valid rows; we filter completed/terminal only in JS.
+      const res = await supabase
+        .from("routes")
+        .select(selectForAssignment)
+        .order("created_at", { ascending: false })
+        .limit(500);
+      routes = res.data as unknown[] | null;
+      error = res.error;
+    } else {
+      let query = supabase
+        .from("routes")
+        .select(selectFull)
+        .order("created_at", { ascending: false });
+      query = query.neq("status", "completed");
+      const res = await query;
+      routes = res.data as unknown[] | null;
+      error = res.error;
+    }
 
     if (error) {
       console.error("[routes:GET] Supabase error", error);
@@ -103,65 +148,45 @@ export async function GET(req: Request) {
     }
 
     let formattedRoutes = (routes ?? []).map((route: any) => ({
-      id: route.id,
-      name: route.name ?? `Route-${route.id.slice(0, 6)}`,
+      id: String(route.id),
+      name: route.name ?? `Route-${String(route.id).slice(0, 6)}`,
       zone: route.area_id ?? null,
       area_id: route.area_id ?? null,
-      stops: route.report_ids?.length ?? 0,
-      report_ids: route.report_ids ?? [],
+      stops: normalizeReportIds(route.report_ids).length,
+      report_ids: normalizeReportIds(route.report_ids),
       google_maps_url: route.google_maps_url ?? null,
       total_severity: 0,
       worker: route.workers?.[0]?.name ?? "Unassigned",
       worker_id: route.worker_id ?? null,
-      status: route.status ?? "pending",
+      status: String(route.status ?? "").trim() || "pending",
       created_at: route.created_at ?? null,
     }));
 
-    // Treat empty-string worker_id as unassigned (PostgREST .is(null) may not match "").
-    formattedRoutes = formattedRoutes.map((r) => ({
-      ...r,
-      worker_id:
-        r.worker_id == null || String(r.worker_id).trim() === ""
-          ? null
-          : r.worker_id,
-    }));
+    // Normalize worker_id: empty string, literal "null"/"undefined" text, etc.
+    formattedRoutes = formattedRoutes.map((r) => {
+      const raw = r.worker_id;
+      let wid: string | null = raw as string | null;
+      if (raw == null) wid = null;
+      else {
+        const s = String(raw).trim();
+        const sl = s.toLowerCase();
+        if (s === "" || sl === "null" || sl === "undefined") wid = null;
+        else wid = s;
+      }
+      return { ...r, worker_id: wid };
+    });
 
     if (forAssignment) {
-      // Fingerprints already "claimed" by a non-assignable row (assigned / cleaned / has worker).
-      const takenFingerprints = new Set<string>();
-      for (const r of formattedRoutes) {
-        if (isRouteUnassignedForPicker(r)) continue;
-        const fp =
-          reportIdsFingerprint(r.report_ids) || `id:${String(r.id)}`;
-        takenFingerprints.add(fp);
-      }
-
-      let assignable = formattedRoutes.filter((r) => isRouteUnassignedForPicker(r));
-      // Drop ghost duplicates: same stops as a route that is already assigned elsewhere.
-      assignable = assignable.filter((r) => {
-        const fp =
-          reportIdsFingerprint(r.report_ids) || `id:${String(r.id)}`;
-        return !takenFingerprints.has(fp);
-      });
-
-      // One assignable row per unique stop set (newest wins among remaining ghosts).
-      const byFingerprint = new Map<
-        string,
-        (typeof formattedRoutes)[number]
-      >();
-      for (const r of assignable) {
-        const fp =
-          reportIdsFingerprint(r.report_ids) || `id:${String(r.id)}`;
-        const prev = byFingerprint.get(fp);
-        const t = String(r.created_at ?? "");
-        const pt = String(prev?.created_at ?? "");
-        if (!prev || t > pt) {
-          byFingerprint.set(fp, r);
-        }
-      }
-      formattedRoutes = Array.from(byFingerprint.values()).sort((a, b) =>
-        String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""))
+      // Drop terminal rows using raw-ish status (already string on row).
+      formattedRoutes = formattedRoutes.filter(
+        (r) => !isTerminalRouteStatusDb(r.status)
       );
+      // Every row with no worker and non-terminal status (no fingerprint dedupe — avoids losing valid routes).
+      formattedRoutes = formattedRoutes
+        .filter((r) => isRouteUnassignedForPicker(r))
+        .sort((a, b) =>
+          String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""))
+        );
     }
 
     return NextResponse.json(formattedRoutes, {

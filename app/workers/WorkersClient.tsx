@@ -10,6 +10,8 @@ export type WorkerRow = {
   zone?: string | null;
   profiles?: { full_name: string | null } | null;
   assignedRoute?: { id: string; name: string; status?: string | null } | null;
+  /** Completed routes attributed to this worker (see workers page query). */
+  totalCleanups?: number;
 };
 
 export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: WorkerRow[] }) {
@@ -40,30 +42,51 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
     fetch(`/api/routes?for_assignment=true&t=${Date.now()}`, {
       cache: "no-store",
     })
-      .then((res) => res.json())
-      .then((data) => {
-        if (!Array.isArray(data)) {
+      .then(async (res) => {
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          const msg =
+            data && typeof data === "object" && "error" in data
+              ? String((data as { error?: unknown }).error ?? res.statusText)
+              : res.statusText;
+          setError(msg || `Failed to load routes (${res.status})`);
           setAvailableRoutes([]);
           return;
         }
-        const stAssigned = (s: unknown) =>
-          ["assigned", "cleaned", "completed"].includes(
+        return data;
+      })
+      .then((data) => {
+        if (data === undefined || data === null) return;
+        if (!Array.isArray(data)) {
+          const msg =
+            data && typeof data === "object" && "error" in data
+              ? String((data as { error?: unknown }).error ?? "")
+              : "";
+          setError(msg || "Could not load routes for assignment.");
+          setAvailableRoutes([]);
+          return;
+        }
+        const stBlocked = (s: unknown) =>
+          ["cleaned", "completed", "done", "cancelled", "archived"].includes(
             String(s ?? "").trim().toLowerCase()
           );
         const open = data.filter((r: any) => {
-          if (!r || typeof r.id !== "string") return false;
+          if (!r || r.id == null) return false;
+          const rid = String(r.id).trim();
+          if (!rid) return false;
           const wid = r.worker_id;
           const noWorker =
             wid === null ||
             wid === undefined ||
             (typeof wid === "string" && wid.trim() === "");
           if (!noWorker) return false;
-          if (stAssigned(r.status)) return false;
+          if (stBlocked(r.status)) return false;
           return true;
         });
         const byId = new Map<string, { id: string; name: string }>();
         for (const r of open) {
-          byId.set(r.id, { id: r.id, name: r.name || r.id });
+          const rid = String(r.id).trim();
+          byId.set(rid, { id: rid, name: String(r.name || rid) });
         }
         setAvailableRoutes([...byId.values()]);
       })
@@ -115,7 +138,7 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
               id: worker.id,
               name: worker.profiles?.full_name || "Worker",
               zone: worker.zone || "Unknown",
-              totalCleanups: 0,
+              totalCleanups: worker.totalCleanups ?? 0,
               status: worker.active ? "Online" : "Offline",
               assignedRoute: worker.assignedRoute ?? null,
             }}
