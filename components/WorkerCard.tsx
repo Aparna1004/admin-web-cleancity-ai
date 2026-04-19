@@ -6,6 +6,7 @@ import { Worker } from "../lib/mockWorkers";
 export function WorkerCard({ worker, onAssign }: { worker: Worker; onAssign: () => void }) {
   const online = worker.status === "Online";
   const route = worker.assignedRoute;
+  const hasActiveRoute = !!route;
 
   return (
     <div className="flex h-full min-h-[17rem] flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -48,12 +49,22 @@ export function WorkerCard({ worker, onAssign }: { worker: Worker; onAssign: () 
 
       <div className="mt-auto flex shrink-0 flex-col gap-3">
         <p className="text-sm text-slate-700">Total cleanups: {worker.totalCleanups}</p>
+        {hasActiveRoute ? (
+          <p className="text-xs text-slate-500">
+            Complete this route on the{" "}
+            <Link href="/routes" className="font-medium text-indigo-600 hover:underline">
+              Routes
+            </Link>{" "}
+            page before assigning another.
+          </p>
+        ) : null}
         <button
           type="button"
           onClick={onAssign}
-          className="inline-flex justify-center rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+          disabled={hasActiveRoute}
+          className="inline-flex justify-center rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
         >
-          {route ? "Change route" : "Assign route"}
+          {hasActiveRoute ? "Assign route (locked)" : "Assign route"}
         </button>
       </div>
     </div>

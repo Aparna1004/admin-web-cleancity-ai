@@ -65,6 +65,40 @@ export async function POST(
       );
     }
 
+    const workerUserId = String(worker.user_id);
+
+    /* ---------- WORKER MUST NOT ALREADY HAVE AN ACTIVE ROUTE ---------- */
+    const { data: workerRoutes, error: workerRoutesErr } = await supabase
+      .from("routes")
+      .select("id, status")
+      .eq("worker_id", workerUserId);
+
+    if (workerRoutesErr) {
+      console.error("[workers/:id/assign] Failed to list worker routes", workerRoutesErr);
+      return NextResponse.json(
+        { error: "Failed to verify worker routes" },
+        { status: 500 }
+      );
+    }
+
+    const terminal = new Set(["completed", "cleaned"]);
+    const activeForWorker = (workerRoutes ?? []).filter((row) => {
+      const st = String(row.status ?? "")
+        .trim()
+        .toLowerCase();
+      return st.length > 0 && !terminal.has(st);
+    });
+
+    if (activeForWorker.length > 0) {
+      return NextResponse.json(
+        {
+          error:
+            "This worker already has an active route. Complete it before assigning another.",
+        },
+        { status: 409 }
+      );
+    }
+
     /* ---------- FIND ROUTE ---------- */
     const { data: route, error: routeError } = await supabase
       .from("routes")
@@ -79,9 +113,13 @@ export async function POST(
       );
     }
 
-    /* ---------- OPTIONAL SAFETY CHECK ---------- */
-    if (route.worker_id != null && String(route.worker_id).length > 0) {
-      if (String(route.worker_id) === String(worker.user_id)) {
+    /* ---------- ROUTE MUST BE FREE ---------- */
+    const wid =
+      route.worker_id === null || route.worker_id === undefined
+        ? ""
+        : String(route.worker_id).trim();
+    if (wid.length > 0 && wid.toLowerCase() !== "null") {
+      if (wid === workerUserId) {
         return NextResponse.json(
           { error: "This route is already assigned to this worker" },
           { status: 409 }
@@ -93,14 +131,17 @@ export async function POST(
       );
     }
 
-    if (route.status === "assigned") {
+    const routeStatus = String(route.status ?? "")
+      .trim()
+      .toLowerCase();
+    if (["assigned", "cleaned", "completed"].includes(routeStatus)) {
       return NextResponse.json(
-        { error: "Route already assigned" },
+        { error: "This route is not available for assignment" },
         { status: 409 }
       );
     }
 
-    /* ---------- ASSIGN ROUTE ---------- */
+    /* ---------- ASSIGN ROUTE (only if still unclaimed) ---------- */
     const { data: updatedRoute, error: updateError } = await supabase
       .from("routes")
       .update({
@@ -108,8 +149,9 @@ export async function POST(
         status: "assigned",
       })
       .eq("id", route_id)
+      .is("worker_id", null)
       .select()
-      .single();
+      .maybeSingle();
 
     if (updateError) {
       console.error(
@@ -119,6 +161,16 @@ export async function POST(
       return NextResponse.json(
         { error: "Failed to assign route" },
         { status: 500 }
+      );
+    }
+
+    if (!updatedRoute) {
+      return NextResponse.json(
+        {
+          error:
+            "Route is no longer available (it may have just been assigned). Refresh and try again.",
+        },
+        { status: 409 }
       );
     }
 

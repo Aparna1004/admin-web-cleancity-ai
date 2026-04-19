@@ -119,7 +119,10 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
               status: worker.active ? "Online" : "Offline",
               assignedRoute: worker.assignedRoute ?? null,
             }}
-            onAssign={() => setSelected(worker)}
+            onAssign={() => {
+              if (worker.assignedRoute) return;
+              setSelected(worker);
+            }}
           />
         ))}
       </div>
