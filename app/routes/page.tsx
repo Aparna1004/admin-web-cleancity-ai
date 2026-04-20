@@ -8,6 +8,7 @@ import { CompleteRouteButton } from "./CompleteRouteButton";
 
 type RouteData = {
   id: string;
+  batchLabel: string;
   date?: string;
   area_id?: number | null;
   report_ids?: string[];
@@ -22,8 +23,7 @@ function isActiveRouteRow(status: unknown): boolean {
   const s = String(status ?? "")
     .trim()
     .toLowerCase();
-  if (!s) return true;
-  return !["completed", "cleaned", "done", "cancelled", "archived"].includes(s);
+  return ["pending", "assigned", "in_progress", "planned", "open", "new"].includes(s);
 }
 
 export const dynamic = "force-dynamic";
@@ -51,8 +51,9 @@ export default async function RoutesPage() {
     } else {
       routesData = (data ?? [])
         .filter((r: any) => isActiveRouteRow(r.status))
-        .map((r: any) => ({
+        .map((r: any, index: number) => ({
           id: String(r.id),
+          batchLabel: `Batch ${index + 1}`,
           area_id: r.area_id ?? null,
           report_ids: r.report_ids ?? [],
           google_maps_url: r.google_maps_url ?? null,
@@ -60,6 +61,16 @@ export default async function RoutesPage() {
           status: r.status ?? "pending",
           worker_id: r.worker_id ?? null,
         }));
+      const unassignedCount = routesData.filter(
+        (r) =>
+          r.worker_id == null ||
+          (typeof r.worker_id === "string" &&
+            ["", "null", "undefined"].includes(r.worker_id.trim().toLowerCase()))
+      ).length;
+      console.log("[RoutesPage] Unassigned route count", {
+        activeRoutes: routesData.length,
+        unassignedRoutes: unassignedCount,
+      });
       dbg("RoutesPage", "routes loaded", { count: routesData.length });
     }
   } catch (e) {
@@ -107,7 +118,7 @@ export default async function RoutesPage() {
           <table className="w-full text-left">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-5 py-3">Route ID</th>
+                <th className="px-5 py-3">Batch</th>
                 <th className="px-5 py-3">Area</th>
                 <th className="px-5 py-3">Stops</th>
                 <th className="px-5 py-3">Severity</th>
@@ -122,7 +133,7 @@ export default async function RoutesPage() {
                   className="border-t border-slate-100 hover:bg-slate-50"
                 >
                   <td className="px-5 py-3 font-semibold text-slate-900">
-                    {route.id}
+                    {route.batchLabel}
                   </td>
 
                   <td className="px-5 py-3 text-slate-700">

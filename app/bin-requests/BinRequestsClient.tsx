@@ -14,6 +14,12 @@ export type BinRequestItem = {
   user_id: string | null;
 };
 
+function mapsUrl(lat: number | null, lng: number | null): string | null {
+  if (lat == null || lng == null) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+}
+
 export function BinRequestsClient({ binRequests = [] as BinRequestItem[] }: { binRequests?: BinRequestItem[] }) {
   const router = useRouter();
   const safeRequests = binRequests || [];
@@ -261,9 +267,18 @@ export function BinRequestsClient({ binRequests = [] as BinRequestItem[] }: { bi
                         {request.address}
                       </td>
                       <td className="px-5 py-3 text-sm text-slate-700">
-                        {request.latitude !== null && request.longitude !== null
-                          ? `${request.latitude.toFixed(4)}, ${request.longitude.toFixed(4)}`
-                          : "—"}
+                        {mapsUrl(request.latitude, request.longitude) ? (
+                          <a
+                            href={mapsUrl(request.latitude, request.longitude) as string}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+                          >
+                            Open Map
+                          </a>
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td className="px-5 py-3 text-sm">
                         <span

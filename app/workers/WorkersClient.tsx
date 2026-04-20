@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { WorkerCard } from "../../components/WorkerCard";
 
@@ -26,6 +26,78 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
   // Fetch available routes when modal opens
   const [availableRoutes, setAvailableRoutes] = useState<Array<{ id: string; name: string }>>([]);
   const [routesLoading, setRoutesLoading] = useState(false);
+  const [routeSummary, setRouteSummary] = useState<{ active: number; unassigned: number }>({
+    active: 0,
+    unassigned: 0,
+  });
+
+  const fetchAvailableRoutes = useCallback(async () => {
+    setRoutesLoading(true);
+    const stBlocked = (s: unknown) =>
+      ["assigned", "cleaned", "completed", "done", "cancelled", "archived"].includes(
+        String(s ?? "").trim().toLowerCase()
+      );
+    const noWorker = (wid: unknown) =>
+      wid === null ||
+      wid === undefined ||
+      (typeof wid === "string" &&
+        ["", "null", "undefined"].includes(wid.trim().toLowerCase()));
+    const toOptions = (list: any[]) => {
+      const open = list.filter((r: any) => {
+        if (!r || r.id == null) return false;
+        const rid = String(r.id).trim();
+        if (!rid) return false;
+        if (!noWorker(r.worker_id)) return false;
+        if (stBlocked(r.status)) return false;
+        return true;
+      });
+      const byId = new Map<string, { id: string; name: string }>();
+      for (const r of open) {
+        const rid = String(r.id).trim();
+        byId.set(rid, { id: rid, name: String(r.name || rid) });
+      }
+      return [...byId.values()];
+    };
+
+    try {
+      // Single source of truth for modal consistency.
+      const res = await fetch(`/api/routes?t=${Date.now()}`, {
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg =
+          data && typeof data === "object" && "error" in data
+            ? String((data as { error?: unknown }).error ?? res.statusText)
+            : res.statusText;
+        setError(msg || `Failed to load routes (${res.status})`);
+        setAvailableRoutes([]);
+        setRouteSummary({ active: 0, unassigned: 0 });
+        return;
+      }
+      if (!Array.isArray(data)) {
+        setAvailableRoutes([]);
+        setRouteSummary({ active: 0, unassigned: 0 });
+        return;
+      }
+      const activeList = data.filter((r: any) => !stBlocked(r?.status));
+      const unassigned = toOptions(activeList);
+      console.log("[WorkersClient] Assign popup route counts", {
+        activeRoutes: activeList.length,
+        unassignedRoutes: unassigned.length,
+      });
+      setAvailableRoutes(unassigned);
+      setRouteSummary({
+        active: activeList.length,
+        unassigned: unassigned.length,
+      });
+    } catch {
+      setAvailableRoutes([]);
+      setRouteSummary({ active: 0, unassigned: 0 });
+    } finally {
+      setRoutesLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!selected) {
@@ -34,65 +106,10 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
       return;
     }
 
-    setRoutesLoading(true);
     setRouteId("");
     setError(null);
-
-    // Only routes with no worker; no-store avoids stale lists after assignments.
-    fetch(`/api/routes?for_assignment=true&t=${Date.now()}`, {
-      cache: "no-store",
-    })
-      .then(async (res) => {
-        const data = await res.json().catch(() => null);
-        if (!res.ok) {
-          const msg =
-            data && typeof data === "object" && "error" in data
-              ? String((data as { error?: unknown }).error ?? res.statusText)
-              : res.statusText;
-          setError(msg || `Failed to load routes (${res.status})`);
-          setAvailableRoutes([]);
-          return;
-        }
-        return data;
-      })
-      .then((data) => {
-        if (data === undefined || data === null) return;
-        if (!Array.isArray(data)) {
-          const msg =
-            data && typeof data === "object" && "error" in data
-              ? String((data as { error?: unknown }).error ?? "")
-              : "";
-          setError(msg || "Could not load routes for assignment.");
-          setAvailableRoutes([]);
-          return;
-        }
-        const stBlocked = (s: unknown) =>
-          ["cleaned", "completed", "done", "cancelled", "archived"].includes(
-            String(s ?? "").trim().toLowerCase()
-          );
-        const open = data.filter((r: any) => {
-          if (!r || r.id == null) return false;
-          const rid = String(r.id).trim();
-          if (!rid) return false;
-          const wid = r.worker_id;
-          const noWorker =
-            wid === null ||
-            wid === undefined ||
-            (typeof wid === "string" && wid.trim() === "");
-          if (!noWorker) return false;
-          if (stBlocked(r.status)) return false;
-          return true;
-        });
-        const byId = new Map<string, { id: string; name: string }>();
-        for (const r of open) {
-          const rid = String(r.id).trim();
-          byId.set(rid, { id: rid, name: String(r.name || rid) });
-        }
-        setAvailableRoutes([...byId.values()]);
-      })
-      .catch(() => setAvailableRoutes([]))
-      .finally(() => setRoutesLoading(false));
-  }, [selected]);
+    void fetchAvailableRoutes();
+  }, [selected, fetchAvailableRoutes]);
 
   const handleAssign = async () => {
     if (!selected || !routeId.trim()) {
@@ -113,8 +130,13 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         setError(data.error || "Failed to assign route");
+        // Keep options consistent if backend already changed route state.
+        await fetchAvailableRoutes();
         return;
       }
+
+      // After assigning one route, immediately refetch so assigned route disappears.
+      await fetchAvailableRoutes();
 
       setSelected(null);
       setRouteId("");
@@ -176,7 +198,9 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
               </select>
               {!routesLoading && availableRoutes.length === 0 && (
                 <p className="text-xs text-slate-500">
-                  No unassigned routes right now. Create routes or wait until one is unassigned.
+                  {routeSummary.active > 0
+                    ? "All active routes are already assigned. Complete/unassign one to reassign."
+                    : "No active routes right now. Create routes first."}
                 </p>
               )}
               <label className="text-sm font-semibold text-slate-700">Notes</label>

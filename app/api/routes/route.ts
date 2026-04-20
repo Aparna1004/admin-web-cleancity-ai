@@ -4,6 +4,10 @@ import { getSupabaseServiceClient } from "../../../lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
 
+function normStatus(status: unknown): string {
+  return String(status ?? "").trim().toLowerCase();
+}
+
 function normalizeReportIds(reportIds: unknown): string[] {
   if (reportIds == null) return [];
   if (Array.isArray(reportIds)) {
@@ -60,16 +64,20 @@ function isRouteUnassignedForPicker(r: {
 }): boolean {
   if (hasAssignedWorkerId(r.worker_id)) return false;
   const st = String(r.status ?? "").trim().toLowerCase();
-  // Do not exclude "assigned" here: some rows are status assigned with NULL worker_id
-  // (bad data / partial writes) and must still be assignable.
-  if (["cleaned", "completed"].includes(st)) return false;
+  // Strict consistency: once route is assigned, never show in assign dropdown.
+  if (["assigned", "cleaned", "completed"].includes(st)) return false;
   return true;
 }
 
 /** Terminal / finished — hide from assignment picker (raw DB row before ?? "pending"). */
 function isTerminalRouteStatusDb(status: unknown): boolean {
-  const st = String(status ?? "").trim().toLowerCase();
+  const st = normStatus(status);
   return ["cleaned", "completed", "done", "cancelled", "archived"].includes(st);
+}
+
+function isActiveRouteStatus(status: unknown): boolean {
+  const st = normStatus(status);
+  return ["pending", "assigned", "in_progress", "planned", "open", "new"].includes(st);
 }
 
 export async function GET(req: Request) {
@@ -149,7 +157,7 @@ export async function GET(req: Request) {
 
     let formattedRoutes = (routes ?? []).map((route: any) => ({
       id: String(route.id),
-      name: route.name ?? `Route-${String(route.id).slice(0, 6)}`,
+      name: route.name ?? null,
       zone: route.area_id ?? null,
       area_id: route.area_id ?? null,
       stops: normalizeReportIds(route.report_ids).length,
@@ -176,6 +184,11 @@ export async function GET(req: Request) {
       return { ...r, worker_id: wid };
     });
 
+    // Keep only active route lifecycle statuses for consistency in all views.
+    formattedRoutes = formattedRoutes.filter((r) =>
+      isActiveRouteStatus(r.status)
+    );
+
     if (forAssignment) {
       // Drop terminal rows using raw-ish status (already string on row).
       formattedRoutes = formattedRoutes.filter(
@@ -188,6 +201,12 @@ export async function GET(req: Request) {
           String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""))
         );
     }
+
+    // Deterministic labels for UI/dropdowns: Batch 1, Batch 2, ...
+    formattedRoutes = formattedRoutes.map((r, index) => ({
+      ...r,
+      name: `Batch ${index + 1}`,
+    }));
 
     return NextResponse.json(formattedRoutes, {
       status: 200,

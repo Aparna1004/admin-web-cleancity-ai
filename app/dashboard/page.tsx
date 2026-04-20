@@ -35,6 +35,14 @@ function reportDayKey(r: ReportRow): string | null {
   return new Date(t).toISOString().slice(0, 10);
 }
 
+function mapsUrl(lat: unknown, lng: unknown): string | null {
+  if (lat == null || lng == null) return null;
+  const la = Number(lat);
+  const lo = Number(lng);
+  if (!Number.isFinite(la) || !Number.isFinite(lo)) return null;
+  return `https://www.google.com/maps?q=${la},${lo}`;
+}
+
 export default async function DashboardPage() {
   dbg("DashboardPage", "render start", { nodeEnv: process.env.NODE_ENV });
   const supabase = getSupabaseServiceClient();
@@ -245,9 +253,18 @@ export default async function DashboardPage() {
                       {br.address || "Unknown address"}
                     </td>
                     <td className="px-5 py-3 text-sm text-slate-700">
-                      {br.latitude !== null && br.longitude !== null
-                        ? `${Number(br.latitude).toFixed(4)}, ${Number(br.longitude).toFixed(4)}`
-                        : "—"}
+                      {mapsUrl(br.latitude, br.longitude) ? (
+                        <a
+                          href={mapsUrl(br.latitude, br.longitude) as string}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200"
+                        >
+                          Open Map
+                        </a>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="px-5 py-3 text-sm">
                       <span
