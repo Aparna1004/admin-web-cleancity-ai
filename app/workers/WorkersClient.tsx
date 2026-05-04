@@ -10,7 +10,6 @@ export type WorkerRow = {
   zone?: string | null;
   profiles?: { full_name: string | null } | null;
   assignedRoute?: { id: string; name: string; status?: string | null } | null;
-  /** Completed routes attributed to this worker (see workers page query). */
   totalCleanups?: number;
 };
 
@@ -23,7 +22,6 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
   const [assigning, setAssigning] = useState(false);  
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch available routes when modal opens
   const [availableRoutes, setAvailableRoutes] = useState<Array<{ id: string; name: string }>>([]);
   const [routesLoading, setRoutesLoading] = useState(false);
   const [routeSummary, setRouteSummary] = useState<{ active: number; unassigned: number }>({
@@ -60,8 +58,7 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
     };
 
     try {
-      // Single source of truth for modal consistency.
-      const res = await fetch(`/api/routes?t=${Date.now()}`, {
+      const res = await fetch(`/api/routes?for_assignment=1&t=${Date.now()}`, {
         cache: "no-store",
       });
       const data = await res.json().catch(() => null);
@@ -180,7 +177,17 @@ export function WorkersClient({ workers = [] as WorkerRow[] }: { workers?: Worke
               Assign a route to <span className="font-semibold">{selected.profiles?.full_name || "Worker"}</span>
             </p>
             <div className="mt-4 space-y-3">
-              <label className="text-sm font-semibold text-slate-700">Route</label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-semibold text-slate-700">Route</label>
+                <button
+                  type="button"
+                  onClick={() => void fetchAvailableRoutes()}
+                  disabled={routesLoading}
+                  className="text-xs text-indigo-600 hover:underline disabled:opacity-50"
+                >
+                  {routesLoading ? "Refreshing…" : "Refresh routes"}
+                </button>
+              </div>
               <select
                 value={routeId}
                 onChange={(e) => setRouteId(e.target.value)}

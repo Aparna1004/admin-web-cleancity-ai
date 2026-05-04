@@ -31,19 +31,13 @@ if (!SERVICE_ROLE_KEY) {
    Only used in API routes (server-side)
 ============================================================ */
 
-let serviceClient: SupabaseClient | null = null;
-
 export function getSupabaseServiceClient(): SupabaseClient {
-  if (!serviceClient) {
-    serviceClient = createClient(SUPABASE_URL!, SERVICE_ROLE_KEY!, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    });
-  }
-
-  return serviceClient;
+  return createClient(SUPABASE_URL!, SERVICE_ROLE_KEY!, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
 
 /* ============================================================

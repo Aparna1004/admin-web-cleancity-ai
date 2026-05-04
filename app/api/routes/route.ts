@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { unstable_noStore as noStore } from "next/cache";
 import { dbg, dbgErr } from "../../../lib/debugLog";
 import { getSupabaseServiceClient } from "../../../lib/supabaseServer";
 
@@ -64,8 +65,8 @@ function isRouteUnassignedForPicker(r: {
 }): boolean {
   if (hasAssignedWorkerId(r.worker_id)) return false;
   const st = String(r.status ?? "").trim().toLowerCase();
-  // Strict consistency: once route is assigned, never show in assign dropdown.
-  if (["assigned", "cleaned", "completed"].includes(st)) return false;
+  const blocked = ["assigned", "cleaned", "completed", "done", "cancelled", "archived"];
+  if (blocked.includes(st)) return false;
   return true;
 }
 
@@ -77,10 +78,15 @@ function isTerminalRouteStatusDb(status: unknown): boolean {
 
 function isActiveRouteStatus(status: unknown): boolean {
   const st = normStatus(status);
-  return ["pending", "assigned", "in_progress", "planned", "open", "new"].includes(st);
+  // "cleaned", "completed", "done", "cancelled", "archived" are terminal — never active.
+  const terminal = ["cleaned", "completed", "done", "cancelled", "archived"];
+  if (terminal.includes(st)) return false;
+  // Null/empty status is treated as pending (mobile app may not set a status).
+  return true;
 }
 
 export async function GET(req: Request) {
+  noStore();
   try {
     dbg("api/routes", "GET start", { url: req.url });
     const supabase = getSupabaseServiceClient();
@@ -119,11 +125,18 @@ export async function GET(req: Request) {
     let error: { message?: string; code?: string } | null = null;
 
     if (forAssignment) {
-      // Plain select — no PostgREST .neq on status. NULL/mismatched enum + .neq can drop
-      // valid rows; we filter completed/terminal only in JS.
+      // DB-level: only unassigned rows whose status is not a terminal/taken value.
+      // Using individual .neq() calls — more reliable than .not("in",...) with string values.
       const res = await supabase
         .from("routes")
         .select(selectForAssignment)
+        .is("worker_id", null)
+        .neq("status", "assigned")
+        .neq("status", "cleaned")
+        .neq("status", "completed")
+        .neq("status", "done")
+        .neq("status", "cancelled")
+        .neq("status", "archived")
         .order("created_at", { ascending: false })
         .limit(500);
       routes = res.data as unknown[] | null;
@@ -202,17 +215,14 @@ export async function GET(req: Request) {
         );
     }
 
-    // Deterministic labels for UI/dropdowns: Batch 1, Batch 2, ...
     formattedRoutes = formattedRoutes.map((r, index) => ({
       ...r,
-      name: `Batch ${index + 1}`,
+      name: r.name ?? `Batch ${index + 1}`,
     }));
 
     return NextResponse.json(formattedRoutes, {
       status: 200,
-      headers: forAssignment
-        ? { "Cache-Control": "no-store, max-age=0" }
-        : undefined,
+      headers: { "Cache-Control": "no-store, max-age=0" },
     });
   } catch (err) {
     console.error("[routes:GET] Unexpected error", err);

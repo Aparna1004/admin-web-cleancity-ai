@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { unstable_noStore as noStore } from "next/cache";
 import { AppShell } from "../../components/AppShell";
 import { BrowserDebugLog } from "../../components/BrowserDebugLog";
 import { CreateRoutesForm } from "./CreateRoutesForm";
@@ -18,18 +19,18 @@ type RouteData = {
   worker_id?: string | null;
 };
 
-/** Hide finished routes even if the DB filter misses (enum casing / legacy values). */
+/** Hide only terminal routes; everything else (including null status) is active. */
 function isActiveRouteRow(status: unknown): boolean {
-  const s = String(status ?? "")
-    .trim()
-    .toLowerCase();
-  return ["pending", "assigned", "in_progress", "planned", "open", "new"].includes(s);
+  const s = String(status ?? "").trim().toLowerCase();
+  const terminal = ["cleaned", "completed", "done", "cancelled", "archived"];
+  return !terminal.includes(s);
 }
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function RoutesPage() {
+  noStore();
   /* ================= FETCH ROUTES DIRECTLY FROM SUPABASE ================= */
   const supabase = getSupabaseServiceClient();
 
@@ -40,7 +41,7 @@ export default async function RoutesPage() {
     const { data, error } = await supabase
       .from("routes")
       .select(
-        "id, name, area_id, report_ids, google_maps_url, worker_id, status, date, created_at"
+        "id, name, area_id, report_ids, google_maps_url, worker_id, status, date, created_at, total_severity"
       )
       .neq("status", "completed")
       .order("created_at", { ascending: false });
@@ -53,11 +54,11 @@ export default async function RoutesPage() {
         .filter((r: any) => isActiveRouteRow(r.status))
         .map((r: any, index: number) => ({
           id: String(r.id),
-          batchLabel: `Batch ${index + 1}`,
+          batchLabel: r.name ?? `Batch ${index + 1}`,
           area_id: r.area_id ?? null,
           report_ids: r.report_ids ?? [],
           google_maps_url: r.google_maps_url ?? null,
-          total_severity: 0,
+          total_severity: r.total_severity ?? 0,
           status: r.status ?? "pending",
           worker_id: r.worker_id ?? null,
         }));
@@ -118,8 +119,7 @@ export default async function RoutesPage() {
           <table className="w-full text-left">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
-                <th className="px-5 py-3">Batch</th>
-                <th className="px-5 py-3">Area</th>
+                <th className="px-5 py-3">Batch name</th>
                 <th className="px-5 py-3">Stops</th>
                 <th className="px-5 py-3">Severity</th>
                 <th className="px-5 py-3">Status</th>
@@ -137,15 +137,11 @@ export default async function RoutesPage() {
                   </td>
 
                   <td className="px-5 py-3 text-slate-700">
-                    {route.area_id ?? "—"}
-                  </td>
-
-                  <td className="px-5 py-3 text-slate-700">
                     {route.report_ids?.length ?? 0}
                   </td>
 
                   <td className="px-5 py-3 text-slate-700">
-                    {route.total_severity ?? 0}
+                    {route?.total_severity ?? 0}
                   </td>
 
                   <td className="px-5 py-3 text-slate-700">

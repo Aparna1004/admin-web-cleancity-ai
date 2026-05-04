@@ -1,3 +1,4 @@
+import { unstable_noStore as noStore } from "next/cache";
 import { AppShell } from "../../components/AppShell";
 import { WorkersClient, type WorkerRow } from "./WorkersClient";
 import { getSupabaseServiceClient } from "../../lib/supabaseServer";
@@ -12,6 +13,7 @@ function normId(v: unknown): string {
 }
 
 export default async function WorkersPage() {
+  noStore();
   const supabase = getSupabaseServiceClient();
 
   let workerRows: unknown[] | null = null;

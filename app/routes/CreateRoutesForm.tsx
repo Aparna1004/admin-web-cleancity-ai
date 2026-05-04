@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useFormState, useFormStatus } from "react-dom";
+import { useRouter } from "next/navigation";
 
 import { createRoutesAction } from "./actions";
 import { createRoutesInitialState } from "./createRoutesState";
@@ -19,10 +21,20 @@ function SubmitButton() {
 }
 
 export function CreateRoutesForm() {
-  const [state, formAction] = useFormState(
+  const router = useRouter();
+  const [rawState, formAction] = useFormState(
     createRoutesAction,
     createRoutesInitialState,
   );
+  const state = rawState ?? { ok: true, message: "" };
+  const prevMsg = useRef(state.message);
+
+  useEffect(() => {
+    if (state.message && state.message !== prevMsg.current) {
+      router.refresh();
+    }
+    prevMsg.current = state.message;
+  }, [state.message, router]);
 
   return (
     <div className="flex flex-col items-end gap-2">
